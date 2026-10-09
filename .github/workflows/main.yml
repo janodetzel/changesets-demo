@@ -66,6 +66,13 @@ jobs:
         with:
           fetch-depth: 0
       - uses: ./.github/actions/setup
+      # Tag first: the changesets action leaves the checkout on its
+      # changeset-release/main branch, whose versions aren't released yet.
+      - name: Tag new versions
+        id: tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/tag-release.mjs
       - name: Create or update the Version Packages PR
         uses: changesets/action@v1
         with:
@@ -73,11 +80,6 @@ jobs:
           commit: Version Packages
         env:
           GITHUB_TOKEN: ${{ github.token }}
-      - name: Tag new versions
-        id: tag
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: node scripts/tag-release.mjs
 
   staging:
     needs: release
