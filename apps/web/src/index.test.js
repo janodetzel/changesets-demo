@@ -11,3 +11,7 @@ test("the new checkout shows only where its flag is on", () => {
   assert.match(checkout({ flags: { "new-checkout": false } }), /\( Pay \)/);
   assert.match(checkout({ flags: {} }), /\( Pay \)/);
 });
+
+test("home greets a signed-in user", () => {
+  assert.match(home({ name: "Jano" }), /^Hello, Jano!!! web home/);
+});

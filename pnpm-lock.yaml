@@ -189,8 +189,13 @@ importers:
       '@demo/ui':
         specifier: workspace:*
         version: link:../../packages/ui
+      '@janodetzel/demo-greeting':
+        specifier: workspace:*
+        version: link:../../packages/greeting
 
   packages/flags: {}
+
+  packages/greeting: {}
 
   packages/ui: {}
 

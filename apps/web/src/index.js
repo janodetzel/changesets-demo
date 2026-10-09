@@ -1,9 +1,11 @@
 import { isEnabled, loadFlags } from "@demo/flags";
+import { greet } from "@janodetzel/demo-greeting";
 import { button } from "@demo/ui";
 
 /** The web app's home screen. */
-export function home() {
-  return `web home ${button("Get started")}`;
+export function home({ name } = {}) {
+  const hello = name ? `${greet(name, { excited: true })} ` : "";
+  return `${hello}web home ${button("Get started")}`;
 }
 
 /** The checkout. The new one is merged and deployed, but only shows where its flag is on. */
