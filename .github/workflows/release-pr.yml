@@ -1,0 +1,61 @@
+name: Release PR
+
+# Builds the Version Packages PR from dev into main (scripts/release-pr.mjs), then
+# deploys its packages to staging once the `staging` environment is approved.
+# Runs after every push to dev (called from dev.yml), when someone edits the PR's
+# description or labels (to hold changesets back), and after the back-merge.
+
+on:
+  workflow_call:
+  workflow_dispatch:
+  pull_request:
+    branches: [main]
+    types: [edited, labeled, unlabeled]
+
+permissions:
+  contents: write
+  pull-requests: write
+  statuses: write
+
+concurrency:
+  group: release-pr
+  cancel-in-progress: true
+
+jobs:
+  build:
+    if: ${{ github.event_name != 'pull_request' || github.head_ref == 'changeset-release/dev' }}
+    runs-on: ubuntu-latest
+    outputs:
+      released: ${{ steps.pr.outputs.released }}
+      problems: ${{ steps.pr.outputs.problems }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: dev
+          fetch-depth: 0
+      - uses: ./.github/actions/setup
+      - id: pr
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: node scripts/release-pr.mjs
+      - name: Build and test the release branch
+        if: ${{ steps.pr.outputs.released != '' }}
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm build
+          pnpm test
+
+  deploy-staging:
+    needs: build
+    if: ${{ needs.build.outputs.released != '' && needs.build.outputs.problems == '0' }}
+    runs-on: ubuntu-latest
+    environment: staging
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: changeset-release/dev
+      - name: Deploy the packages this release bumps
+        env:
+          RELEASED: ${{ needs.build.outputs.released }}
+        run: node scripts/deploy.mjs staging $RELEASED

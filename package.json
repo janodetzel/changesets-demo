@@ -1,0 +1,16 @@
+{
+  "name": "changesets-demo",
+  "private": true,
+  "description": "Demo: pnpm workspace + changesets with gated, selective deploys (dev → staging → production)",
+  "packageManager": "pnpm@12.10.1",
+  "engines": { "node": ">=22" },
+  "scripts": {
+    "build": "pnpm -r run build",
+    "test": "pnpm -r run test",
+    "changeset": "changeset"
+  },
+  "devDependencies": {
+    "@changesets/changelog-github": "^1.0.1",
+    "@changesets/cli": "^3.0.3"
+  }
+}

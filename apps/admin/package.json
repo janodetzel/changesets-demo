@@ -1,0 +1,12 @@
+{
+  "name": "@demo/admin",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "main": "src/index.js",
+  "scripts": {
+    "build": "node ../../scripts/build-package.mjs",
+    "test": "node --test"
+  },
+  "dependencies": { "@demo/ui": "workspace:*" }
+}

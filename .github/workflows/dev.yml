@@ -1,0 +1,33 @@
+name: Dev
+
+# Every merge into dev: deploy what it changed to the development environment,
+# and rebuild the Version Packages PR.
+
+on:
+  push:
+    branches: [dev]
+
+permissions:
+  contents: write
+  pull-requests: write
+  statuses: write
+
+jobs:
+  deploy-development:
+    runs-on: ubuntu-latest
+    environment: development
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: ./.github/actions/setup
+      - name: Deploy the changed packages and their dependents
+        env:
+          BEFORE: ${{ github.event.before }}
+          SHA: ${{ github.sha }}
+        run: |
+          targets=$(node scripts/affected.mjs "$BEFORE" "$SHA" | sed "s/\$/+dev.${SHA:0:7}/")
+          node scripts/deploy.mjs development $targets
+
+  release-pr:
+    uses: ./.github/workflows/release-pr.yml
