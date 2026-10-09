@@ -4,7 +4,7 @@
 // output `released`. After an ordinary merge nothing is new; after the Version
 // Packages PR, the bumped packages are.
 import { execFileSync } from "node:child_process";
-import { appendFileSync, readFileSync } from "node:fs";
+import { appendFileSync, existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { workspacePackages } from "./lib/workspace.mjs";
 
@@ -21,7 +21,8 @@ for (const tag of created) {
   const name = tag.slice(0, tag.lastIndexOf("@"));
   const { dir } = workspacePackages().find((pkg) => pkg.name === name);
   // The newest section of the package's changelog, without its "## <version>" heading.
-  const changelog = readFileSync(join(dir, "CHANGELOG.md"), "utf8").split(/^## /m)[1] ?? "";
+  const file = join(dir, "CHANGELOG.md");
+  const changelog = existsSync(file) ? (readFileSync(file, "utf8").split(/^## /m)[1] ?? "") : "";
   const notes = changelog.slice(changelog.indexOf("\n") + 1).trim() || "No changelog entry.";
   run("gh", ["release", "create", tag, "--title", tag, "--notes", notes, "--verify-tag"]);
   console.log(`released ${tag}`);
