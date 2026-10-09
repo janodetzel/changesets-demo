@@ -4,9 +4,9 @@ name: Main
 # - deploys the apps it changed (and their dependents) to development;
 # - publishes changed flag files to their environment, without deploying apps;
 # - keeps the Version Packages PR up to date (changesets action).
-# Merging the Version Packages PR tags the new versions, deploys them to staging
-# and, once `production` is approved, to production. Unfinished work ships
-# switched off behind a feature flag (flags/<environment>.json).
+# The Version Packages PR deploys to staging (staging.yml). Merging it tags the
+# new versions and, once `production` is approved, deploys them to production.
+# Unfinished work ships switched off behind a feature flag (flags/<environment>.json).
 
 on:
   push:
@@ -81,20 +81,9 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
 
-  staging:
+  production:
     needs: release
     if: ${{ needs.release.outputs.released != '' }}
-    runs-on: ubuntu-latest
-    environment: staging
-    steps:
-      - uses: actions/checkout@v4
-      - name: Deploy the new versions
-        env:
-          RELEASED: ${{ needs.release.outputs.released }}
-        run: node scripts/deploy.mjs staging $RELEASED
-
-  production:
-    needs: [release, staging]
     runs-on: ubuntu-latest
     environment: production
     steps:

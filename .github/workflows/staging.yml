@@ -1,0 +1,28 @@
+name: Staging
+
+# The Version Packages PR deploys what it would release to staging, once the
+# `staging` environment is approved. Every update of the PR asks again.
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
+
+concurrency:
+  group: staging
+  cancel-in-progress: true
+
+jobs:
+  staging:
+    if: ${{ startsWith(github.head_ref, 'changeset-release/') }}
+    runs-on: ubuntu-latest
+    environment: staging
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+      - name: Deploy the versions this PR releases
+        run: |
+          git fetch --tags --force origin
+          node scripts/deploy.mjs staging $(node scripts/pending-versions.mjs)

@@ -30,15 +30,16 @@ flowchart LR
   F[feature/*] -- "squash PR + changeset" --> M[main]
   M -- "changed apps" --> DEV[(development)]
   M -- "changesets action" --> V[Version Packages PR]
+  V -- "approve" --> STG[(staging)]
   V -- "merge" --> T[tags + GitHub releases]
-  T --> STG[(staging)]
-  STG -- "approve" --> PROD[(production)]
+  T -- "approve" --> PROD[(production)]
 ```
 
 1. **Work on a branch, merge to main.** Open a PR into `main` with a changeset, and squash-merge it. The required checks are `changeset` and `test`.
 2. **Development.** Every merge deploys the apps it changed, and the apps depending on them, to **development** (`scripts/affected.mjs`).
 3. **Version Packages PR.** The [changesets action](https://github.com/changesets/action) keeps one PR open that applies all pending changesets: new versions and changelog entries. Each entry links the short commit hash and the PR, and thanks its author ("Thanks @user!"), from [`@changesets/changelog-github`](https://github.com/changesets/changesets/tree/main/packages/changelog-github).
-4. **Release.** Merging that PR tags each new version (`@demo/ui@1.1.0`), creates a GitHub release with its changelog, deploys those versions to **staging**, and after approval of the **production** environment, to production. The same versions go to both.
+4. **Staging.** The Version Packages PR deploys the versions it would release (every package version without a tag yet) to **staging**, once you approve the `staging` environment. Every update of the PR asks again, and a newer update cancels a waiting one.
+5. **Release.** Merging the PR tags each new version (`@demo/ui@1.1.0`), creates a GitHub release with its changelog, and after approval of the **production** environment deploys those versions to production. Production gets the versions staging ran.
 
 There's no `dev` branch, no release branch and no back-merge: `main` is always what's deployable.
 
@@ -79,7 +80,7 @@ Unknown flags are off, so code can ship before its flag exists. In this demo, `n
 - Merge methods: squash only, branches deleted after merge.
 - Actions may create pull requests (Settings → Actions → General).
 - Ruleset on `main`: PR required, squash only, required checks `changeset` and `test`, no force pushes or deletion. The Version Packages PR passes the changeset check by its branch name (`changeset-release/*`). Admins may bypass the ruleset, in case that PR's checks don't start (a PR opened with the workflow token often triggers no workflows; closing and reopening it does).
-- Environments: `development` and `staging` (no gate), `production` (required reviewer).
+- Environments: `development` (no gate), `staging` and `production` (required reviewer).
 
 ## Why not hold back changes in git?
 
