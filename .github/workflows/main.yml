@@ -15,6 +15,7 @@ on:
 permissions:
   contents: write
   pull-requests: write
+  packages: write
 
 concurrency:
   group: main
@@ -68,10 +69,17 @@ jobs:
       - uses: ./.github/actions/setup
       # Tag first: the changesets action leaves the checkout on its
       # changeset-release/main branch, whose versions aren't released yet.
-      - name: Tag new versions
+      # `changeset publish` publishes public packages (here @janodetzel/demo-greeting
+      # to GitHub Packages, with the workflow token) and tags the private ones.
+      - name: Authenticate to GitHub Packages
+        run: |
+          echo '@janodetzel:registry=https://npm.pkg.github.com' >> ~/.npmrc
+          echo '//npm.pkg.github.com/:_authToken=${NODE_AUTH_TOKEN}' >> ~/.npmrc
+      - name: Publish and tag new versions
         id: tag
         env:
           GH_TOKEN: ${{ github.token }}
+          NODE_AUTH_TOKEN: ${{ github.token }}
         run: node scripts/tag-release.mjs
       - name: Create or update the Version Packages PR
         uses: changesets/action@v1

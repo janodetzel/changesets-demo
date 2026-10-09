@@ -1,6 +1,7 @@
-// Runs on every push to main: tags each package version that has no tag yet
-// (`changeset publish` only tags here, since every package is private), creates
-// a GitHub release per new tag, and writes the new "name@version" list to the job
+// Runs on every push to main: `changeset publish` publishes each public package
+// whose version isn't in its registry yet (@janodetzel/demo-greeting, to GitHub
+// Packages) and tags every new version, private ones included. Then this creates
+// a GitHub release per new tag and writes the new "name@version" list to the job
 // output `released`. After an ordinary merge nothing is new; after the Version
 // Packages PR, the bumped packages are.
 import { execFileSync } from "node:child_process";
