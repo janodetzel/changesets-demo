@@ -8,5 +8,9 @@
     "build": "node ../../scripts/build-package.mjs",
     "test": "node --test"
   },
-  "dependencies": { "@demo/flags": "workspace:*", "@demo/ui": "workspace:*" }
+  "dependencies": {
+    "@demo/flags": "workspace:*",
+    "@demo/ui": "workspace:*",
+    "@janodetzel/demo-greeting": "workspace:*"
+  }
 }
