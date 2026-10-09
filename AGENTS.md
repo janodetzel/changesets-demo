@@ -7,4 +7,4 @@ pnpm workspace (pnpm via `packageManager`, Node ≥ 22): `apps/web`, `apps/admin
 - Trunk-based: branch from `main`, PR into `main`, squash merge.
 - Every PR needs a changeset: `pnpm changeset`, or `pnpm changeset --empty` for changes that release nothing. A PR that only touches `flags/` needs none. Never edit a `version` or a `CHANGELOG.md` by hand.
 - Unfinished work goes behind a feature flag (`@demo/flags`), off in production, instead of waiting on a branch.
-- Never merge the Version Packages PR or approve the `production` environment: that's the maintainer's job.
+- Never merge the Version Packages PR: merging it deploys to production, and that's the maintainer's job.
