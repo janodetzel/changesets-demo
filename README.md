@@ -1,19 +1,20 @@
 # changesets-demo
 
-A pnpm workspace that shows how [changesets](https://github.com/changesets/changesets) drive **selective, gated deploys** through three environments: every package is versioned and deployed on its own, and only the packages a release actually bumps go to staging and production.
+A pnpm workspace that shows **trunk-based releases with [changesets](https://github.com/changesets/changesets)**: every package is versioned and deployed on its own, only what changed gets deployed, and unfinished work ships switched off behind **feature flags** instead of being held back in git.
 
-Deploys are **simulated**: each deploy job runs in a GitHub environment (so GitHub records a deployment) and logs the packages it would ship in the job summary.
+Deploys are **simulated**: each deploy job runs in a GitHub environment (so GitHub records a deployment) and lists what it would ship in the job summary.
 
 ## The workspace
 
 | Package | Path | Depends on |
 | --- | --- | --- |
 | `@demo/ui` | `packages/ui` | — |
-| `@demo/web` | `apps/web` | `@demo/ui` |
+| `@demo/flags` | `packages/flags` | — |
+| `@demo/web` | `apps/web` | `@demo/ui`, `@demo/flags` |
 | `@demo/admin` | `apps/admin` | `@demo/ui` |
 | `@demo/api` | `apps/api` | — |
 
-A change to `@demo/ui` also bumps and redeploys `web` and `admin` (changesets' `updateInternalDependencies`). A change to `api` ships `api` alone.
+A change to `@demo/ui` also bumps and redeploys `web` and `admin` (changesets' `updateInternalDependencies`); a change to `api` ships `api` alone.
 
 ```sh
 pnpm install
@@ -22,64 +23,70 @@ pnpm changeset            # describe your change: packages, bump type, summary
 pnpm changeset --empty    # docs, CI and other changes that release nothing
 ```
 
-## Branches
-
-| Branch | Role | Merge method |
-| --- | --- | --- |
-| `feature/*` | one change, PR into `dev` | squash |
-| `dev` | integration; deploys to **development** on every merge | — |
-| `changeset-release/dev` | the **Version Packages** PR: `main` plus the unreleased commits from `dev` | merge commit into `main` |
-| `main` | production; every version here is tagged and released | — |
-| `hotfix/*` | urgent fix, PR into `main` | merge commit |
-
-Rulesets enforce the merge methods, and **every PR needs a changeset** (the `changeset` check). The `PR checks` workflow also rejects a PR that doesn't follow the flow (for example `feature/*` into `main`).
-
 ## The flow
 
 ```mermaid
 flowchart LR
-  F[feature/*] -- "squash PR + changeset" --> D[dev]
-  D -- "deploy changed packages" --> DEV[(development)]
-  D -- "cherry-pick unreleased commits onto main" --> V[Version Packages PR]
-  V -- "build, test, approve staging" --> STG[(staging)]
-  V -- "merge commit" --> M[main]
-  M -- "tag + GitHub release" --> T[name@version]
-  T -- "approve production" --> PROD[(production)]
-  M -- "back-merge" --> D
-  H[hotfix/*] -- "merge commit + changeset" --> M
+  F[feature/*] -- "squash PR + changeset" --> M[main]
+  M -- "changed apps" --> DEV[(development)]
+  M -- "changesets action" --> V[Version Packages PR]
+  V -- "merge" --> T[tags + GitHub releases]
+  T --> STG[(staging)]
+  STG -- "approve" --> PROD[(production)]
 ```
 
-1. **Feature → dev.** Open a PR from `feature/<something>` into `dev` with a changeset, and squash-merge it: one PR becomes one commit on `dev`. The `Dev` workflow deploys the packages the merge changed (plus their dependents) to **development** and rebuilds the Version Packages PR.
-2. **Version Packages PR.** The `Release PR` workflow builds the branch `changeset-release/dev` **from `main`**: it cherry-picks every commit on `dev` that hasn't been released yet, runs `changeset version`, and keeps one PR into `main` up to date. Its description lists:
-   - the releases with their changelog entries; each entry names the squash commit's short hash, the PR and its author ("Thanks @user!"), from [`@changesets/changelog-github`](https://github.com/changesets/changesets/tree/main/packages/changelog-github);
-   - one checkbox per pending commit.
-3. **Hold a commit back.** Tick its box in the PR description (or add the label `defer:<short-sha>`). The workflow rebuilds the PR without that commit: its **code and its changeset** stay in `dev` only, and it comes back in the next Version Packages PR. Because the choice lives in the description, not in the branch, it survives every rebuild.
-4. **Staging gate.** The same workflow run builds and tests the release branch, then waits for approval of the **staging** environment and deploys the packages the PR bumps. Staging runs exactly what production will get.
-5. **Release.** Merge the Version Packages PR into `main` with a merge commit. The `Production` workflow tags every new version (`@demo/ui@1.1.0`), creates a GitHub release with its changelog, and waits for approval of the **production** environment before deploying exactly those versions.
-6. **Back-merge.** The same workflow merges `main` back into `dev`, so `dev` has the version commits, and removes the changesets that were released. Held-back commits and their changesets stay pending.
+1. **Work on a branch, merge to main.** Open a PR into `main` with a changeset, and squash-merge it. The required checks are `changeset` and `test`.
+2. **Development.** Every merge deploys the apps it changed, and the apps depending on them, to **development** (`scripts/affected.mjs`).
+3. **Version Packages PR.** The [changesets action](https://github.com/changesets/action) keeps one PR open that applies all pending changesets: new versions and changelog entries. Each entry links the short commit hash and the PR, and thanks its author ("Thanks @user!"), from [`@changesets/changelog-github`](https://github.com/changesets/changesets/tree/main/packages/changelog-github).
+4. **Release.** Merging that PR tags each new version (`@demo/ui@1.1.0`), creates a GitHub release with its changelog, deploys those versions to **staging**, and after approval of the **production** environment, to production. The same versions go to both.
 
-**Hotfix:** branch `hotfix/<something>` from `main`, add a changeset, and merge the PR into `main`. The `Production` workflow versions it on `main`, tags, waits for the production approval and back-merges into `dev`.
+There's no `dev` branch, no release branch and no back-merge: `main` is always what's deployable.
 
-## Holding back, and its limit
+## Feature flags instead of holding changes back
 
-Because the release branch is `main` plus cherry-picked commits, a held-back commit's code really stays out of the release, not just its version bump. The cherry-pick `-x` line ("cherry picked from commit …") records which `dev` commits are released.
+Unfinished or risky work is merged and deployed **switched off**. Deciding what users see is a flag change, not a git operation.
 
-The limit is dependencies between commits. A later commit that **doesn't apply** without a held-back one (it edits the same lines) is skipped too, and the **hold-back check** on the PR fails and names both: hold the later one back as well, or release them together. A dependency git can't see (a later commit calls a function the held-back one added) shows up when the workflow builds and tests the release branch, before staging.
+```js
+import { isEnabled, loadFlags } from "@demo/flags";
 
-When a feature is merged but must not go live for a while, a **feature flag** is still simpler than holding it back release after release.
+if (isEnabled(loadFlags(), "new-checkout", { userId })) {
+  return newCheckout();
+}
+return checkout();
+```
+
+A flag's value lives in `flags/<environment>.json`:
+
+| Value | Meaning |
+| --- | --- |
+| `true` / `false` | on or off for everyone |
+| `{ "users": ["jano"] }` | on for these users only (testers) |
+| `{ "percent": 10 }` | on for a stable 10% of users |
+
+Unknown flags are off, so code can ship before its flag exists. In this demo, `new-checkout` is on in development, on for one user in staging, and off in production.
+
+**Flipping a flag** is a PR that only touches `flags/`: it needs no changeset, and the `flags` job publishes the file to its environment without deploying any app. In a real setup the values live in a flag service (PostHog, LaunchDarkly, Statsig) or a key-value store (Cloudflare KV); only `loadFlags` changes.
+
+**Lifecycle of a flag:**
+1. add it (off) with the first PR of the feature;
+2. turn it on for testers, then a percentage, then everyone;
+3. remove the flag and the old code path in a cleanup PR. Flags nobody removes are the main cost of this approach.
+
+**Hotfix:** a normal PR into `main` with a changeset, then merge the Version Packages PR. If a new feature misbehaves, switch its flag off first: that takes effect without a deploy.
 
 ## Setup (already done for this repo)
 
-- Merge methods: squash and merge commit (rebase off), branches deleted after merge, default branch `dev`.
+- Merge methods: squash only, branches deleted after merge.
 - Actions may create pull requests (Settings → Actions → General).
-- Rulesets:
-  - `dev`: PR required, squash only, required check `changeset`;
-  - `main`: PR required, merge commit only, required checks `changeset` and `hold-back`.
+- Ruleset on `main`: PR required, squash only, required checks `changeset` and `test`, no force pushes or deletion. Admins may bypass it: the Version Packages PR is opened by the workflow token, which triggers no checks, so the maintainer merges it.
+- Environments: `development` and `staging` (no gate), `production` (required reviewer).
 
-  Both allow GitHub Actions to bypass, for the back-merge and the hotfix version commit.
-- Environments: `development` (no gate), `staging` and `production` (required reviewer).
+## Why not hold back changes in git?
 
-## Notes
+An earlier version of this demo built the release from `main` plus cherry-picked commits, so single commits could be held back. It worked, but:
+- releases ran combinations nobody had tested together;
+- later commits depended on held-back ones;
+- `main` and the integration branch drifted apart;
+- it needed a few hundred lines of custom release scripts.
 
-- The changelog credits the author of the PR (or commit) that added the changeset, not whoever merged it.
-- The release workflow pushes with the workflow token, which doesn't trigger other workflows. That's why it posts the `changeset` and `hold-back` results on the Version Packages PR as commit statuses itself, and why the back-merge starts the `Release PR` workflow explicitly.
+Feature flags keep one branch, test what ships, and decide visibility at runtime.

@@ -3,7 +3,7 @@
   "changelog": ["@changesets/changelog-github", { "repo": "janodetzel/changesets-demo" }],
   "commit": false,
   "access": "restricted",
-  "baseBranch": "dev",
+  "baseBranch": "main",
   "updateInternalDependencies": "patch",
   "privatePackages": { "version": true, "tag": true },
   "ignore": []

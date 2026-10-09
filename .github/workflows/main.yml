@@ -1,0 +1,103 @@
+name: Main
+
+# Every merge into main:
+# - deploys the apps it changed (and their dependents) to development;
+# - publishes changed flag files to their environment, without deploying apps;
+# - keeps the Version Packages PR up to date (changesets action).
+# Merging the Version Packages PR tags the new versions, deploys them to staging
+# and, once `production` is approved, to production. Unfinished work ships
+# switched off behind a feature flag (flags/<environment>.json).
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: main
+  cancel-in-progress: false
+
+jobs:
+  development:
+    runs-on: ubuntu-latest
+    environment: development
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: ./.github/actions/setup
+      - name: Deploy the changed apps and their dependents
+        env:
+          BEFORE: ${{ github.event.before }}
+          SHA: ${{ github.sha }}
+        run: |
+          targets=$(node scripts/affected.mjs "$BEFORE" "$SHA" | sed "s/\$/+${SHA:0:7}/")
+          node scripts/deploy.mjs development $targets
+
+  flags:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Publish changed flag files
+        env:
+          BEFORE: ${{ github.event.before }}
+          SHA: ${{ github.sha }}
+        run: |
+          changed=$(git diff --name-only "$BEFORE" "$SHA" -- 'flags/*.json' 2>/dev/null || ls flags/*.json)
+          if [ -z "$changed" ]; then echo "No flag changes."; exit 0; fi
+          for file in $changed; do
+            env=$(basename "$file" .json)
+            echo "Publishing flags to $env (simulated; a real setup writes them to the flag service or KV):"
+            cat "$file"
+            { echo "### Flags published to $env"; echo '```json'; cat "$file"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          done
+
+  release:
+    runs-on: ubuntu-latest
+    outputs:
+      released: ${{ steps.tag.outputs.released }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: ./.github/actions/setup
+      - name: Create or update the Version Packages PR
+        uses: changesets/action@v1
+        with:
+          title: Version Packages
+          commit: Version Packages
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+      - name: Tag new versions
+        id: tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/tag-release.mjs
+
+  staging:
+    needs: release
+    if: ${{ needs.release.outputs.released != '' }}
+    runs-on: ubuntu-latest
+    environment: staging
+    steps:
+      - uses: actions/checkout@v4
+      - name: Deploy the new versions
+        env:
+          RELEASED: ${{ needs.release.outputs.released }}
+        run: node scripts/deploy.mjs staging $RELEASED
+
+  production:
+    needs: [release, staging]
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+      - name: Deploy the new versions
+        env:
+          RELEASED: ${{ needs.release.outputs.released }}
+        run: node scripts/deploy.mjs production $RELEASED

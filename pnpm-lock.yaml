@@ -183,9 +183,14 @@ importers:
 
   apps/web:
     dependencies:
+      '@demo/flags':
+        specifier: workspace:*
+        version: link:../../packages/flags
       '@demo/ui':
         specifier: workspace:*
         version: link:../../packages/ui
+
+  packages/flags: {}
 
   packages/ui: {}
 
