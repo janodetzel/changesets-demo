@@ -1,8 +1,8 @@
 name: PR checks
 
-# Required by the ruleset on main. The Version Packages PR is opened by the
-# changesets action with the workflow token, which triggers no workflows; the
-# maintainer merges it (rulesets let admins bypass the required checks).
+# Required by the ruleset on main: `changeset` and `test`. The Version Packages
+# PR (changeset-release/*) consumes changesets instead of adding one, so the
+# changeset check passes for it.
 
 on:
   pull_request:
@@ -16,7 +16,13 @@ jobs:
         with:
           fetch-depth: 0
       - name: The PR adds a changeset (not needed for a PR that only flips flags)
+        env:
+          HEAD_REF: ${{ github.head_ref }}
         run: |
+          if [[ "$HEAD_REF" == changeset-release/* ]]; then
+            echo "The Version Packages PR consumes changesets: nothing to add."
+            exit 0
+          fi
           changed=$(git diff --name-only origin/main...HEAD)
           if ! grep -qv '^flags/' <<<"$changed"; then
             echo "Only flags/ changed: no changeset needed."
