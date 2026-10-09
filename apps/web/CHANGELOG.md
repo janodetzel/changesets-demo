@@ -1,5 +1,12 @@
 # @demo/web
 
+## 1.1.1
+
+### Patch Changes
+
+- Updated dependencies [[`690c39d`](https://github.com/janodetzel/changesets-demo/commit/690c39d3223707142e048463e61dafb94abbbbb6)]:
+  - @janodetzel/demo-greeting@1.2.0
+
 ## 1.1.0
 
 ### Minor Changes
