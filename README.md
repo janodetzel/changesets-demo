@@ -78,7 +78,7 @@ Unknown flags are off, so code can ship before its flag exists. In this demo, `n
 
 - Merge methods: squash only, branches deleted after merge.
 - Actions may create pull requests (Settings → Actions → General).
-- Ruleset on `main`: PR required, squash only, required checks `changeset` and `test`, no force pushes or deletion. Admins may bypass it: the Version Packages PR is opened by the workflow token, which triggers no checks, so the maintainer merges it.
+- Ruleset on `main`: PR required, squash only, required checks `changeset` and `test`, no force pushes or deletion. The Version Packages PR passes the changeset check by its branch name (`changeset-release/*`). Admins may bypass the ruleset, in case that PR's checks don't start (a PR opened with the workflow token often triggers no workflows; closing and reopening it does).
 - Environments: `development` and `staging` (no gate), `production` (required reviewer).
 
 ## Why not hold back changes in git?
