@@ -13,6 +13,7 @@ Deploys are **simulated**: each deploy job runs in a GitHub environment (so GitH
 | `@demo/web` | `apps/web` | `@demo/ui`, `@demo/flags` |
 | `@demo/admin` | `apps/admin` | `@demo/ui` |
 | `@demo/api` | `apps/api` | — |
+| `@janodetzel/demo-greeting` | `packages/greeting` | — (published to GitHub Packages) |
 
 A change to `@demo/ui` also bumps and redeploys `web` and `admin` (changesets' `updateInternalDependencies`); a change to `api` ships `api` alone.
 
@@ -42,6 +43,21 @@ flowchart LR
 5. **Release.** Merging the PR tags each new version (`@demo/ui@1.1.0`), creates a GitHub release with its changelog, and after approval of the **production** environment deploys those versions to production. Production gets the versions staging ran.
 
 There's no `dev` branch, no release branch and no back-merge: `main` is always what's deployable.
+
+## Apps are deployed, libraries are published
+
+Every package gets versions, changelogs and tags the same way; what "release" means depends on the kind:
+
+- **Apps** (`apps/*`, private) are **deployed**: development on every merge, staging from the Version Packages PR, production after the merge.
+- **Internal libraries** (`@demo/ui`, `@demo/flags`, private) ship **inside the apps** that use them: a new version redeploys its dependents, and nothing is deployed for the library itself.
+- **Published libraries** (`@janodetzel/demo-greeting`) go to a **registry**. When the Version Packages PR is merged, `changeset publish` publishes every public package whose version isn't in its registry yet, here to [GitHub Packages](https://github.com/janodetzel?tab=packages&repo_name=changesets-demo).
+
+What publishing to GitHub Packages takes:
+1. The package is scoped to the repo owner (`@janodetzel/…`), isn't `private`, and has `"publishConfig": { "registry": "https://npm.pkg.github.com" }` plus a `repository` field (which links the package to this repo).
+2. The release job has `packages: write`, and an `.npmrc` entry gives the workflow token to the registry: `//npm.pkg.github.com/:_authToken=${NODE_AUTH_TOKEN}`. No extra secret is needed.
+3. To install it elsewhere: `@janodetzel:registry=https://npm.pkg.github.com` in that project's `.npmrc`, plus a token with `read:packages`. GitHub Packages needs a token even for public packages.
+
+Publishing to npmjs.org instead means dropping `publishConfig.registry` and using an `NPM_TOKEN` secret.
 
 ## Feature flags instead of holding changes back
 
