@@ -5,7 +5,7 @@ name: Main
 # - publishes changed flag files to their environment, without deploying apps;
 # - keeps the Version Packages PR up to date (changesets action).
 # The Version Packages PR deploys to staging (staging.yml). Merging it tags the
-# new versions and, once `production` is approved, deploys them to production.
+# new versions and deploys them to production.
 # Unfinished work ships switched off behind a feature flag (flags/<environment>.json).
 
 on:

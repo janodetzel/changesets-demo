@@ -1,7 +1,7 @@
 name: Staging
 
-# The Version Packages PR deploys what it would release to staging, once the
-# `staging` environment is approved. Every update of the PR asks again.
+# The Version Packages PR deploys what it would release to staging on every
+# update (a newer update cancels a running deploy).
 
 on:
   pull_request:
