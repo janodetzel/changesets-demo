@@ -2,3 +2,7 @@
 export function greet(name, { excited = false } = {}) {
   return `Hello, ${name}${excited ? "!!!" : "!"}`;
 }
+
+export function greetWithEmojis(name) {
+  return `${greet(name)} ☀️☀️☀️`
+}
