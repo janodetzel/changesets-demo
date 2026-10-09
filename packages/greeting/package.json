@@ -1,6 +1,6 @@
 {
   "name": "@janodetzel/demo-greeting",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "Example library from changesets-demo, published to GitHub Packages",
   "type": "module",
   "main": "src/index.js",
