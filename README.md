@@ -10,7 +10,8 @@ Billing, Payment Provider, and Wingman share `main` as their integration branch.
 flowchart TD
   PR[Feature PR: code + release notes] --> CHECK[Build + unit tests]
   CHECK --> MAIN[Squash merge to main]
-  MAIN --> DEV[Build artifact; deploy DEV; automated tests]
+  MAIN --> PATHS[Select domains by changed paths]
+  PATHS --> DEV[Build artifact; deploy DEV; automated tests]
   DEV --> MANUALDEV[Team tests this candidate on DEV]
   MANUALDEV --> APPROVESTAGE[Approve stage-domain in Review deployments]
   APPROVESTAGE --> STAGE[Same artifact to STAGE; automated tests]
@@ -20,7 +21,7 @@ flowchart TD
   PROD --> RELEASE[Domain tag + GitHub Release]
 ```
 
-The three domains follow this sequence independently in the same workflow run. There is no build ID to copy and no promotion workflow to dispatch. A failed or waiting Payment job does not block Billing or Wingman.
+Selected domains follow this sequence independently in the same workflow run. There is no build ID to copy and no promotion workflow to dispatch. A failed or waiting Payment job does not block Billing or Wingman.
 
 Automated tests are prerequisites, not release approval. The team approves STAGE only after manual DEV testing, then approves PROD after manual STAGE testing. Add a test-evidence link or explanation in the GitHub approval comment.
 
@@ -33,6 +34,28 @@ Automated tests are prerequisites, not release approval. The team approves STAGE
 | `wingman` | Hangover | Return locations from a proxy | None |
 
 These are fictional implementations with no calls to EMP APIs. The sample domains have no runtime dependencies on each other. Real EMP domains also need contract tests against the relevant deployed peer versions.
+
+## Select only domains affected by the push
+
+The first job uses `dorny/paths-filter` with `.github/domain-paths.yml`. Each domain workflow runs only when its output is true.
+
+| Changed paths | Workflows selected |
+| --- | --- |
+| `domains/billing/**` | Billing |
+| `domains/payment/**` | Payment |
+| `domains/wingman/**` | Wingman |
+| `packages/money/**` | Billing and Payment |
+| Root package manifest, lockfile, workspace or Node/npm configuration | All domains |
+| Release workflows or `.github/domain-paths.yml` | All domains |
+| Root README, `AGENTS.md`, or other documentation outside domain folders | None |
+
+Changes to domain tests and `RELEASE.md` count as domain changes. Additions and deletions count too. A push affecting multiple domains selects their union. The selection job's summary lists the result, and unselected domain jobs appear as skipped without requesting approvals.
+
+The comparison uses the push's previous and new commits, including all commits in a multi-commit push. It does not compare against the last production release. A first push considers all files. PR checks still build and unit-test the whole small workspace so required check names remain stable.
+
+This is an explicit path-to-consumer map, not an inferred dependency graph. When adding a shared package, add its paths to every consuming domain, including indirect consumers. A root lockfile change deliberately triggers all domains even when it accompanies a domain-specific dependency edit.
+
+A failed or manually rejected candidate is not automatically retried by an unrelated push. Retry the failed workflow or integrate a follow-up change in that domain. Pending candidates retain their existing workflow and approval state.
 
 ## Configure approvals before merging the workflows
 
@@ -70,12 +93,13 @@ Each production job creates a domain release such as `billing-build-123456789-1`
 
 ### 2. Merge changes with different readiness
 
-Open a feature PR with these changes:
+Open three separate feature PRs, each from current `main`:
 
 1. Add `description: 'Charging session'` to the invoice response in `domains/billing/src/index.mjs`.
 2. Add `'Hamburg'` to the cities in `domains/wingman/src/index.mjs`.
 3. In `domains/payment/src/index.mjs`, deliberately return `refundedCents: cents(amountCents)`. This incorrectly converts cents a second time.
-4. Describe the changes in the corresponding `domains/<domain>/RELEASE.md` files.
+
+Describe each change in its corresponding `domains/<domain>/RELEASE.md` file. Merge each PR separately. Each push starts only that domain's release workflow.
 
 PR unit tests pass because the small Payment unit test covers authorization. Its full refund acceptance test runs after merge. This deliberately demonstrates late defect discovery, not a recommended gap in production unit coverage.
 
@@ -93,7 +117,9 @@ To abandon a candidate, reject its environment deployment. Avoid cancelling the 
 
 Open a PR restoring `refundedCents: amountCents` and explain the fix in `domains/payment/RELEASE.md`. Merge, wait for Payment's DEV tests, and approve its STAGE and PROD jobs after manual testing.
 
-The minimal demo builds every domain on each merge, including shared code. It therefore also creates new Billing and Wingman candidates. Their production jobs still require separate approval; they do not have to release with Payment.
+This Payment-only fix starts only Payment's release workflow. Billing and Wingman receive no new candidates or approval requests.
+
+To demonstrate shared code, make a separate PR modifying `packages/money/src/index.mjs`. Billing and Payment start because both bundle that library; Wingman is skipped. To demonstrate cumulative changes, merge two Billing PRs: the newer Billing artifact includes both PRs and waits behind the active Billing candidate under the concurrency policy below.
 
 ## Keep the candidate stable during manual testing
 
@@ -110,6 +136,7 @@ When evolving the demo to real EMP environments, revisit this policy if DEV must
 | Question | View |
 | --- | --- |
 | What was integrated? | Merged PRs and `main` history |
+| Why did a domain start or get skipped? | Select changed domains job summary and filter logs |
 | Which domains passed automated DEV tests? | Domain DEV jobs and uploaded artifacts |
 | What needs manual testing and STAGE approval? | Pending `stage-*` jobs and DEV summaries |
 | What needs production approval? | Pending `prod-*` jobs and STAGE summaries |
@@ -143,7 +170,8 @@ pnpm test:acceptance
 
 ```text
 .github/workflows/pr.yml              Build and unit checks before merge
-.github/workflows/release.yml         Three independent calls on a main push
+.github/domain-paths.yml             Domain paths and shared-code consumers
+.github/workflows/release.yml         Path selection and conditional domain calls
 .github/workflows/domain-release.yml  DEV → STAGE approval → STAGE → PROD approval → PROD
 domains/{billing,payment,wingman}/
   src/index.mjs                      Example application code

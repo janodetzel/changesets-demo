@@ -1,0 +1,20 @@
+# Explicit build dependencies for this small demo. Keep consumer paths in sync
+# when adding a shared package or a new domain.
+billing:
+  - 'domains/billing/**'
+  - 'packages/money/**'
+payment:
+  - 'domains/payment/**'
+  - 'packages/money/**'
+wingman:
+  - 'domains/wingman/**'
+shared:
+  - 'package.json'
+  - 'pnpm-lock.yaml'
+  - 'pnpm-workspace.yaml'
+  - '.npmrc'
+  - '.nvmrc'
+  - '.node-version'
+  - '.github/domain-paths.yml'
+  - '.github/workflows/release.yml'
+  - '.github/workflows/domain-release.yml'
