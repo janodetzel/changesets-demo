@@ -1,7 +1,9 @@
 {
   "name": "@emp/wingman",
-  "version": "0.0.0",
-  "nx": { "name": "wingman" },
+  "version": "1.0.0",
+  "nx": {
+    "name": "wingman"
+  },
   "private": true,
   "type": "module",
   "scripts": {
