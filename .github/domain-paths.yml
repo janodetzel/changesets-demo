@@ -15,6 +15,8 @@ shared:
   - '.npmrc'
   - '.nvmrc'
   - '.node-version'
+  - 'nx.json'
+  - 'scripts/release-notes.mjs'
   - '.github/domain-paths.yml'
   - '.github/workflows/release.yml'
   - '.github/workflows/domain-release.yml'

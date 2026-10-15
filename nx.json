@@ -1,0 +1,23 @@
+{
+  "$schema": "./node_modules/nx/schemas/nx-schema.json",
+  "defaultBase": "origin/main",
+  "release": {
+    "projects": ["billing", "payment", "wingman"],
+    "projectsRelationship": "independent",
+    "versionPlans": {
+      "ignorePatternsForPlanCheck": ["**/test/**", "**/*.md"]
+    },
+    "version": {
+      "currentVersionResolver": "disk",
+      "updateDependents": "never",
+      "versionActionsOptions": { "skipLockFileUpdate": true }
+    },
+    "changelog": {
+      "projectChangelogs": {
+        "createRelease": false,
+        "renderOptions": { "authors": false }
+      }
+    },
+    "git": { "commit": false, "tag": false }
+  }
+}

@@ -2,12 +2,22 @@
   "name": "changesets-demo",
   "private": true,
   "description": "Independent EMP domain releases with GitHub Actions and Environments",
-  "packageManager": "pnpm@12.10.1",
-  "engines": { "node": ">=22" },
+  "packageManager": "pnpm@10.34.7",
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
     "build": "pnpm -r --if-present build",
-    "test": "pnpm -r --if-present test",
-    "test:acceptance": "pnpm -r --if-present test:acceptance"
+    "test": "pnpm -r --if-present test && node --test scripts/release-notes.test.mjs",
+    "test:acceptance": "pnpm -r --if-present test:acceptance",
+    "release:plan": "nx release plan",
+    "release:check": "nx release plan:check",
+    "release:prepare": "nx release --skip-publish && node scripts/release-notes.mjs preview"
   },
-  "devDependencies": { "esbuild": "0.25.12" }
+  "devDependencies": {
+    "@nx/js": "22.5.4",
+    "esbuild": "0.25.12",
+    "nx": "22.5.4",
+    "yaml": "2.8.1"
+  }
 }
