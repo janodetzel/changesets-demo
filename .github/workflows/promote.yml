@@ -1,0 +1,134 @@
+name: Promote domain
+run-name: Promote ${{ inputs.domain }} from build ${{ inputs.build_run }} / attempt ${{ inputs.build_attempt }}
+on:
+  workflow_dispatch:
+    inputs:
+      domain:
+        description: Domain to promote
+        type: choice
+        options: [billing, payment, wingman]
+        required: true
+      build_run:
+        description: Run ID from Build and test on DEV
+        type: string
+        required: true
+      build_attempt:
+        description: Run attempt containing the successful DEV artifact
+        type: string
+        default: '1'
+        required: true
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  # Keep one domain's candidate stable through STAGE, approval, and PROD.
+  group: promote-${{ inputs.domain }}
+  cancel-in-progress: false
+jobs:
+  stage:
+    name: STAGE ${{ inputs.domain }}
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: stage-${{ inputs.domain }}
+    outputs:
+      source_sha: ${{ steps.verify.outputs.source_sha }}
+    steps:
+      - name: Validate the build's origin
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BUILD_RUN: ${{ inputs.build_run }}
+          BUILD_ATTEMPT: ${{ inputs.build_attempt }}
+        run: |
+          [[ "$BUILD_RUN" =~ ^[0-9]+$ && "$BUILD_ATTEMPT" =~ ^[0-9]+$ ]]
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$BUILD_RUN/attempts/$BUILD_ATTEMPT" > "$RUNNER_TEMP/build.json"
+          jq -e '.event == "push" and .head_branch == "main" and .path == ".github/workflows/dev.yml" and .status == "completed"' "$RUNNER_TEMP/build.json"
+          # The whole matrix may be red because an unrelated domain failed.
+          # This domain's artifact exists only after its own acceptance succeeded.
+      - uses: actions/download-artifact@v4
+        with:
+          name: dev-tested-${{ inputs.domain }}-${{ inputs.build_attempt }}
+          run-id: ${{ inputs.build_run }}
+          github-token: ${{ github.token }}
+          path: artifact
+      - name: Verify bundle checksums and source identity
+        id: verify
+        working-directory: artifact
+        env:
+          DOMAIN: ${{ inputs.domain }}
+          BUILD_RUN: ${{ inputs.build_run }}
+          BUILD_ATTEMPT: ${{ inputs.build_attempt }}
+        run: |
+          sha256sum --check SHA256SUMS
+          SOURCE_SHA=$(jq -r .head_sha "$RUNNER_TEMP/build.json")
+          jq -e --arg domain "$DOMAIN" --arg run "$BUILD_RUN" --arg attempt "$BUILD_ATTEMPT" --arg sha "$SOURCE_SHA" \
+            '.domain == $domain and .runId == $run and .attempt == $attempt and .sourceSha == $sha' provenance.json
+          printf 'source_sha=%s\n' "$SOURCE_SHA" >> "$GITHUB_OUTPUT"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Deploy to STAGE (simulated) and test the original artifact
+        working-directory: artifact
+        run: node --test test/acceptance.test.mjs
+      - name: Summarize what production approval will release
+        env:
+          DOMAIN: ${{ inputs.domain }}
+          SOURCE_SHA: ${{ steps.verify.outputs.source_sha }}
+        run: |
+          {
+            printf '## %s passed STAGE\n\nSource: `%s`\n\n' "$DOMAIN" "$SOURCE_SHA"
+            cat artifact/RELEASE.md
+            printf '\n### Exact artifact checksums\n\n```\n'
+            cat artifact/SHA256SUMS
+            printf '```\n'
+          } >> "$GITHUB_STEP_SUMMARY"
+  production:
+    name: PROD ${{ inputs.domain }}
+    needs: stage
+    runs-on: ubuntu-latest
+    environment: prod-${{ inputs.domain }}
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dev-tested-${{ inputs.domain }}-${{ inputs.build_attempt }}
+          run-id: ${{ inputs.build_run }}
+          github-token: ${{ github.token }}
+          path: artifact
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Deploy unchanged artifact to PROD (simulated) and smoke test
+        working-directory: artifact
+        env:
+          SOURCE_SHA: ${{ needs.stage.outputs.source_sha }}
+        run: |
+          sha256sum --check SHA256SUMS
+          jq -e --arg sha "$SOURCE_SHA" '.sourceSha == $sha' provenance.json
+          node --test test/acceptance.test.mjs
+      - name: Create an immutable domain release record
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DOMAIN: ${{ inputs.domain }}
+          BUILD_RUN: ${{ inputs.build_run }}
+          BUILD_ATTEMPT: ${{ inputs.build_attempt }}
+          SOURCE_SHA: ${{ needs.stage.outputs.source_sha }}
+        run: |
+          TAG="$DOMAIN-build-$BUILD_RUN-$BUILD_ATTEMPT"
+          {
+            cat artifact/RELEASE.md
+            printf '\nSource: `%s`\n\n' "$SOURCE_SHA"
+            printf 'Build: https://github.com/%s/actions/runs/%s\n\n' "$GITHUB_REPOSITORY" "$BUILD_RUN"
+            printf 'Promotion and approval: https://github.com/%s/actions/runs/%s\n\n' "$GITHUB_REPOSITORY" "$GITHUB_RUN_ID"
+            printf 'This release applies only to **%s**. Other domains retain their previous releases.\n' "$DOMAIN"
+          } > "$RUNNER_TEMP/notes.md"
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+            printf 'Release %s already exists; preserving its original record.\n' "$TAG"
+          else
+            gh release create "$TAG" artifact/provenance.json artifact/SHA256SUMS \
+              --repo "$GITHUB_REPOSITORY" --target "$SOURCE_SHA" \
+              --title "$DOMAIN · build $BUILD_RUN / $BUILD_ATTEMPT" \
+              --notes-file "$RUNNER_TEMP/notes.md" --latest=false
+          fi
+          printf '## Released %s\n\n[Domain release](https://github.com/%s/releases/tag/%s)\n' "$DOMAIN" "$GITHUB_REPOSITORY" "$TAG" >> "$GITHUB_STEP_SUMMARY"

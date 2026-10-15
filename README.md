@@ -1,109 +1,172 @@
-# changesets-demo
+# EMP independent-release demo
 
-A pnpm workspace that shows **trunk-based releases with [changesets](https://github.com/changesets/changesets)**: every package is versioned and deployed on its own, only what changed gets deployed, and unfinished work ships switched off behind **feature flags** instead of being held back in git.
+This repository demonstrates a multi-team monorepo release flow using **GitHub Actions, workflow artifacts, Environments, and Releases**. The repository itself is the demo. There is no dashboard or custom release engine.
 
-Deploys are **simulated**: each deploy job runs in a GitHub environment (so GitHub records a deployment) and lists what it would ship in the job summary.
-
-## The workspace
-
-| Package | Path | Depends on |
-| --- | --- | --- |
-| `@demo/ui` | `packages/ui` | — |
-| `@demo/flags` | `packages/flags` | — |
-| `@demo/web` | `apps/web` | `@demo/ui`, `@demo/flags` |
-| `@demo/admin` | `apps/admin` | `@demo/ui` |
-| `@demo/api` | `apps/api` | — |
-| `@janodetzel/demo-greeting` | `packages/greeting` | — (published to GitHub Packages) |
-
-A change to `@demo/ui` also bumps and redeploys `web` and `admin` (changesets' `updateInternalDependencies`); a change to `api` ships `api` alone.
-
-```sh
-pnpm install
-pnpm build && pnpm test
-pnpm changeset            # describe your change: packages, bump type, summary
-pnpm changeset --empty    # docs, CI and other changes that release nothing
-```
+Billing, Payment Provider, and Wingman share one integration branch. Each domain can promote a tested artifact to production independently. Infrastructure deployments are simulated by running the domain's bundled code and acceptance tests in GitHub Environment jobs.
 
 ## The flow
 
 ```mermaid
 flowchart LR
-  F[feature/*] -- "squash PR + changeset" --> M[main]
-  M -- "changed apps" --> DEV[(development)]
-  M -- "changesets action" --> V[Version Packages PR]
-  V -- "approve" --> STG[(staging)]
-  V -- "merge" --> T[tags + GitHub releases]
-  T -- "approve" --> PROD[(production)]
+  PR[Feature PR: code + release notes] --> CHECK[Build + unit tests]
+  CHECK --> MAIN[Squash merge to main]
+  MAIN --> B[Billing: build + DEV acceptance]
+  MAIN --> P[Payment: build + DEV acceptance]
+  MAIN --> W[Wingman: build + DEV acceptance]
+  B --> BA[Immutable Billing artifact]
+  P --> PA[Immutable Payment artifact]
+  W --> WA[Immutable Wingman artifact]
+  BA --> SELECT[Select domain + build run]
+  PA --> SELECT
+  WA --> SELECT
+  SELECT --> STAGE[Test that artifact on STAGE]
+  STAGE --> APPROVE[Domain production approval]
+  APPROVE --> PROD[Same artifact to PROD]
+  PROD --> RELEASE[Domain tag + GitHub Release]
 ```
 
-1. **Work on a branch, merge to main.** Open a PR into `main` with a changeset, and squash-merge it. The required checks are `changeset` and `test`.
-2. **Development.** Every merge deploys the apps it changed, and the apps depending on them, to **development** (`scripts/affected.mjs`).
-3. **Version Packages PR.** The [changesets action](https://github.com/changesets/action) keeps one PR open that applies all pending changesets: new versions and changelog entries. Each entry links the short commit hash and the PR, and thanks its author ("Thanks @user!"), from [`@changesets/changelog-github`](https://github.com/changesets/changesets/tree/main/packages/changelog-github).
-4. **Staging.** The Version Packages PR deploys the versions it would release (every package version without a tag yet) to **staging**, once you approve the `staging` environment. Every update of the PR asks again, and a newer update cancels a waiting one.
-5. **Release.** Merging the PR tags each new version (`@demo/ui@1.1.0`), creates a GitHub release with its changelog, and after approval of the **production** environment deploys those versions to production. Production gets the versions staging ran.
+`main` is the integration branch, equivalent to EMP's current `dev` role. It is not a declaration that every domain is ready for production. Full acceptance tests run after merge. Production state is the last successful deployment for each domain.
 
-There's no `dev` branch, no release branch and no back-merge: `main` is always what's deployable.
+## Domains
 
-## Apps are deployed, libraries are published
+| Domain | EMP owner | Example behavior | Shared build dependency |
+| --- | --- | --- | --- |
+| `billing` | Flamingo | Calculate a charging invoice | `@emp/money` |
+| `payment` | Godzilla | Authorize and refund a payment | `@emp/money` |
+| `wingman` | Hangover | Return locations from a proxy | None |
 
-Every package gets versions, changelogs and tags the same way; what "release" means depends on the kind:
+The examples use fictional code and data. They do not call EMP APIs. These three sample services have no runtime dependency on each other. This keeps the demo focused on independent promotion. Real EMP services additionally need contract tests against the relevant deployed peer versions.
 
-- **Apps** (`apps/*`, private) are **deployed**: development on every merge, staging from the Version Packages PR, production after the merge.
-- **Internal libraries** (`@demo/ui`, `@demo/flags`, private) ship **inside the apps** that use them: a new version redeploys its dependents, and nothing is deployed for the library itself.
-- **Published libraries** (`@janodetzel/demo-greeting`) go to a **registry**. When the Version Packages PR is merged, `changeset publish` publishes every public package whose version isn't in its registry yet, here to [GitHub Packages](https://github.com/janodetzel?tab=packages&repo_name=changesets-demo).
+## GitHub setup
 
-What publishing to GitHub Packages takes:
-1. The package is scoped to the repo owner (`@janodetzel/…`), isn't `private`, and has `"publishConfig": { "registry": "https://npm.pkg.github.com" }` plus a `repository` field (which links the package to this repo).
-2. The release job has `packages: write`, and an `.npmrc` entry gives the workflow token to the registry: `//npm.pkg.github.com/:_authToken=${NODE_AUTH_TOKEN}`. No extra secret is needed.
-3. To install it elsewhere: `@janodetzel:registry=https://npm.pkg.github.com` in that project's `.npmrc`, plus a token with `read:packages`. GitHub Packages needs a token even for public packages.
+Before trying a production promotion, configure the environments in **Settings → Environments**:
 
-Publishing to npmjs.org instead means dropping `publishConfig.registry` and using an `NPM_TOKEN` secret.
+| Domain | DEV | STAGE | Production |
+| --- | --- | --- | --- |
+| Billing | `dev-billing` | `stage-billing` | `prod-billing` |
+| Payment | `dev-payment` | `stage-payment` | `prod-payment` |
+| Wingman | `dev-wingman` | `stage-wingman` | `prod-wingman` |
 
-## Feature flags instead of holding changes back
+For each `prod-*` environment, add required reviewers. In a company repository, choose the owning team or its release reviewers. For this personal sandbox, choose the maintainer. Disable self-review prevention if the same person must run the entire demonstration. Restrict deployment branches to `main`.
 
-Unfinished or risky work is merged and deployed **switched off**. Deciding what users see is a flag change, not a git operation.
+GitHub requires approval only when environment protection is configured. An automatically created environment has no approval gate. The workflows do not configure settings for you.
 
-```js
-import { isEnabled, loadFlags } from "@demo/flags";
+Use a PR to land this setup on `main`, then use PRs for demo changes. The existing repository rules require `test` and `changeset`. PR checks retain those names; the `changeset` check now verifies that domain release descriptions exist. It does not generate versions. It can be renamed together with the repository rules later.
 
-if (isEnabled(loadFlags(), "new-checkout", { userId })) {
-  return newCheckout();
-}
-return checkout();
-```
+No secrets, registry, cloud account, or paid deployment platform is needed. `GITHUB_TOKEN` downloads artifacts and creates release records.
 
-A flag's value lives in `flags/<environment>.json`:
+## Demonstrate a complete release
 
-| Value | Meaning |
+### 1. Establish a baseline
+
+Merge the setup PR into `main`. Open **Actions → Build and test on DEV**. The three domain jobs build their application and run acceptance checks.
+
+Each successful job uploads `dev-tested-<domain>-<attempt>`. Its job summary includes the build run ID, attempt, source commit, and release description. Failed domains upload no promotable artifact.
+
+Run **Actions → Promote domain → Run workflow** from `main` with:
+
+- Domain: `billing`.
+- Build run: the numeric ID from the DEV run URL or job summary.
+- Build attempt: normally `1`.
+
+The workflow downloads the existing artifact, checks its provenance and checksums, and tests it on STAGE. Approve `prod-billing` when GitHub requests a review. The production job downloads the same immutable artifact, runs smoke checks, and creates a release such as `billing-build-123456789-1`.
+
+Repeat for Payment and Wingman to establish their baseline releases.
+
+### 2. Integrate work that is not ready everywhere
+
+Open a feature PR that makes these changes:
+
+1. In `domains/billing/src/index.mjs`, add `description: 'Charging session'` to the invoice response.
+2. In `domains/wingman/src/index.mjs`, add `'Hamburg'` to the city list.
+3. In `domains/payment/src/index.mjs`, deliberately change the refund result to `refundedCents: cents(amountCents)`. This accidentally converts cents a second time.
+4. Describe each change in the corresponding `domains/<domain>/RELEASE.md`.
+
+PR unit checks pass because the simplified Payment unit test covers authorization, not the full refund flow. This intentionally illustrates EMP's constraint: some defects are discovered only in acceptance testing after integration. It is not a recommendation to omit refund unit tests in production code.
+
+Squash-merge the PR. The DEV run shows:
+
+- Billing passes and has a promotable artifact.
+- Wingman passes and has a promotable artifact.
+- Payment fails: 59000 refunded cents instead of 590. It has no promotable artifact from this attempt.
+
+The workflow uses `fail-fast: false`, so Payment's failure does not cancel the other jobs.
+
+### 3. Release Billing and Wingman independently
+
+Dispatch **Promote domain** once for Billing and once for Wingman, using the new build run ID. Approve each production environment.
+
+The build run is red overall because Payment failed. Promotion deliberately accepts successful domain artifacts from that run. It validates the build's workflow, event, branch, completed attempt, and source SHA rather than requiring every domain to pass.
+
+Payment stays on its baseline production release. Trying to promote Payment from the failed attempt stops at artifact download because that artifact does not exist.
+
+### 4. Fix and release Payment later
+
+Open another PR restoring `refundedCents: amountCents`, with a release-note explanation. Merge it, wait for Payment's DEV acceptance to pass, and promote Payment from that run.
+
+No Billing or Wingman deployment is required. All three domains build on each merge in this small demo, but only the explicitly selected domain is promoted. Building everything avoids adding an affected-project tool while still including changes to shared libraries.
+
+## Where to see what is happening
+
+| Question | GitHub view |
 | --- | --- |
-| `true` / `false` | on or off for everyone |
-| `{ "users": ["jano"] }` | on for these users only (testers) |
-| `{ "percent": 10 }` | on for a stable 10% of users |
+| What source changes were integrated? | Merged PRs and `main` history |
+| Which domain passed DEV acceptance? | Individual domain jobs and artifacts in the DEV run |
+| What can be promoted? | `dev-tested-*` artifacts and their job summaries |
+| What is waiting for approval? | Pending `prod-*` environment jobs |
+| What was released for a domain? | Domain-specific GitHub Releases and deployment history |
+| Which source and artifact were used? | Release tag, `provenance.json`, and `SHA256SUMS` |
+| What changed since a domain's previous release? | Compare its previous release tag with the candidate source SHA, inspect the domain and shared dependency changes |
 
-Unknown flags are off, so code can ship before its flag exists. In this demo, `new-checkout` is on in development, on for one user in staging, and off in production.
+`RELEASE.md` is a reviewed, cumulative description of a domain. Its exact contents are bundled with each candidate and copied into the GitHub Release. PR authors should add entries with the original PR or work-item reference when available.
 
-**Flipping a flag** is a PR that only touches `flags/`: it needs no changeset, and the `flags` job publishes the file to its environment without deploying any app. In a real setup the values live in a flag service (PostHog, LaunchDarkly, Statsig) or a key-value store (Cloudflare KV); only `loadFlags` changes.
+For a tested change intentionally deferred by a team, add a `release-held` label and a reason to its original PR, then leave its candidate unpromoted. Remove the label when it ships. This is a manual convention, not an automated gate. The minimal demo does not reconstruct a feature-level backlog automatically. Deployment state remains domain-specific, even when one PR touches several domains.
 
-**Lifecycle of a flag:**
-1. add it (off) with the first PR of the feature;
-2. turn it on for testers, then a percentage, then everyone;
-3. remove the flag and the old code path in a cleanup PR. Flags nobody removes are the main cost of this approach.
+## What makes this independent
 
-**Hotfix:** a normal PR into `main` with a changeset, then merge the Version Packages PR. If a new feature misbehaves, switch its flag off first: that takes effect without a deploy.
+- Every domain has its own production environment and approval.
+- A failed DEV job prevents only that domain's artifact from being uploaded.
+- Promotion downloads the bundle and its tests from one specific run attempt. It never checks out current application source, installs dependencies, or rebuilds.
+- esbuild includes shared code inside each domain bundle. A later edit to `@emp/money` cannot change an existing artifact.
+- Workflow artifacts are immutable under `upload-artifact@v4`. SHA-256 checks catch accidental modification after download.
+- Per-domain promotion concurrency keeps one promotion active while it moves through STAGE and approval. Other domains have separate groups.
+- GitHub records a separate release tag per domain and build. The root package version does not determine deployment.
 
-## Setup (already done for this repo)
+Approvals and environment deployment records identify the promotion workflow's commit. The artifact's source commit can be older. Always use the job summary or release provenance to identify the deployed source.
 
-- Merge methods: squash only, branches deleted after merge.
-- Actions may create pull requests (Settings → Actions → General).
-- Ruleset on `main`: PR required, squash only, required checks `changeset` and `test`, no force pushes or deletion. The Version Packages PR passes the changeset check by its branch name (`changeset-release/*`). Admins may bypass the ruleset, in case that PR's checks don't start (a PR opened with the workflow token often triggers no workflows; closing and reopening it does).
-- Environments: `development` (no gate), `staging` and `production` (required reviewer).
+An older artifact may be deliberately selected, including for a rollback demonstration. GitHub's deployment history records deployment order. The demo does not enforce monotonic source revisions or model database rollback safety.
 
-## Why not hold back changes in git?
+## Limits kept explicit
 
-An earlier version of this demo built the release from `main` plus cherry-picked commits, so single commits could be held back. It worked, but:
-- releases ran combinations nobody had tested together;
-- later commits depended on held-back ones;
-- `main` and the integration branch drifted apart;
-- it needed a few hundred lines of custom release scripts.
+The jobs simulate deployment by running bundled domain code on GitHub runners. There are no continuously running DEV, STAGE, or PROD services. In EMP, replace those marked steps with the real artifact deployment adapter and environment-specific checks.
 
-Feature flags keep one branch, test what ships, and decide visibility at runtime.
+Artifact retention is 90 days. An expired or deleted artifact cannot be promoted. Release provenance survives as release assets, but application bundles are not archived there. A production implementation would use durable artifact storage.
+
+GitHub's standard concurrency queue may replace an older pending run when several dispatches target the same domain. That cancellation is visible in Actions. Dispatch one candidate at a time per domain for the demo.
+
+If smoke tests or release-record creation fail after a real deployment, the running version may already have changed. GitHub job success alone would not describe that partial state. This example does not implement partial infrastructure deployment or migration recovery.
+
+Feature flags, cherry-pick selection, automated dependency resolution, package-registry publication, and per-package SemVer are intentionally outside this demo. Domain build IDs identify deployments. Changesets or Nx Release can be added separately when published library versions become part of the demonstration.
+
+## Run the checks locally
+
+```sh
+pnpm install --frozen-lockfile
+pnpm build
+pnpm test
+pnpm test:acceptance
+```
+
+The source and release logic are small enough to read directly:
+
+```text
+.github/workflows/pr.yml       Build and unit checks before merge
+.github/workflows/dev.yml      Build and acceptance per domain after merge
+.github/workflows/promote.yml  Download → STAGE → approval → PROD → Release
+domains/{billing,payment,wingman}/
+  src/index.mjs               Example application code
+  test/unit.test.mjs          Fast PR checks
+  test/acceptance.test.mjs    Tests against the built artifact
+  RELEASE.md                  Reviewed release description
+packages/money/               Shared library bundled into consumers
+```

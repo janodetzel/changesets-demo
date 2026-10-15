@@ -1,3 +1,5 @@
 packages:
-  - apps/*
+  - domains/*
   - packages/*
+allowBuilds:
+  esbuild: true

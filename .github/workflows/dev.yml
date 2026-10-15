@@ -1,0 +1,65 @@
+name: Build and test on DEV
+on:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  domain:
+    name: DEV ${{ matrix.domain }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        domain: [billing, payment, wingman]
+    environment: dev-${{ matrix.domain }}
+    concurrency:
+      group: dev-${{ matrix.domain }}
+      cancel-in-progress: false
+    env:
+      DOMAIN: ${{ matrix.domain }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Build this domain with its shared dependencies
+        run: pnpm --filter "@emp/$DOMAIN" build
+      - name: Deploy to DEV (simulated) and run acceptance tests against the bundle
+        run: pnpm --filter "@emp/$DOMAIN" test:acceptance
+      - name: Prepare the tested artifact and its provenance
+        run: |
+          mkdir -p artifact/dist artifact/test
+          cp "domains/$DOMAIN/dist/index.mjs" artifact/dist/
+          cp "domains/$DOMAIN/test/acceptance.test.mjs" artifact/test/
+          cp "domains/$DOMAIN/RELEASE.md" artifact/
+          jq -n --arg domain "$DOMAIN" --arg sha "$GITHUB_SHA" \
+            --arg run "$GITHUB_RUN_ID" --arg attempt "$GITHUB_RUN_ATTEMPT" \
+            '{domain:$domain,sourceSha:$sha,runId:$run,attempt:$attempt}' > artifact/provenance.json
+          (cd artifact && sha256sum dist/index.mjs test/acceptance.test.mjs RELEASE.md provenance.json > SHA256SUMS)
+      - name: Store only artifacts that passed DEV acceptance
+        id: upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: dev-tested-${{ matrix.domain }}-${{ github.run_attempt }}
+          path: artifact/
+          if-no-files-found: error
+          retention-days: 90
+      - name: Record the promotion candidate
+        env:
+          ARTIFACT_URL: ${{ steps.upload.outputs.artifact-url }}
+        run: |
+          {
+            printf '## %s is ready for STAGE\n\n' "$DOMAIN"
+            printf 'Source: `%s`\n\n' "$GITHUB_SHA"
+            printf 'Promote domain **%s**, build run **%s**, attempt **%s**.\n\n' "$DOMAIN" "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT"
+            printf '[Download immutable artifact](%s)\n\n' "$ARTIFACT_URL"
+            cat "domains/$DOMAIN/RELEASE.md"
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Explain an unsuccessful candidate
+        if: failure()
+        run: |
+          printf '## %s is not ready\n\nBuild or DEV checks failed. No promotable artifact was uploaded. Other domains can still release.\n' "$DOMAIN" >> "$GITHUB_STEP_SUMMARY"
