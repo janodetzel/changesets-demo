@@ -20,3 +20,7 @@ shared:
   - '.github/domain-paths.yml'
   - '.github/workflows/release.yml'
   - '.github/workflows/domain-release.yml'
+  - '.github/workflows/deploy-dev.yml'
+  - '.github/workflows/domain-dev.yml'
+  - '.github/workflows/domain-build.yml'
+  - '.github/workflows/select-domains.yml'

@@ -1,0 +1,51 @@
+name: Deploy one domain to DEV
+on:
+  workflow_call:
+    inputs:
+      domain:
+        type: string
+        required: true
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: integration-${{ inputs.domain }}
+  cancel-in-progress: false
+jobs:
+  build:
+    uses: ./.github/workflows/domain-build.yml
+    with:
+      domain: ${{ inputs.domain }}
+      release_candidate: false
+  dev:
+    name: DEV ${{ inputs.domain }}
+    needs: build
+    runs-on: ubuntu-latest
+    environment: dev-${{ inputs.domain }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          artifact-ids: ${{ needs.build.outputs.artifact_id }}
+          merge-multiple: true
+          path: artifact
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Deploy to DEV (simulated) and run acceptance tests
+        working-directory: artifact
+        env:
+          DOMAIN: ${{ inputs.domain }}
+        run: |
+          sha256sum --check SHA256SUMS
+          jq -e --arg domain "$DOMAIN" --arg sha "$GITHUB_SHA" --arg run "$GITHUB_RUN_ID" \
+            '.domain == $domain and .sourceSha == $sha and .runId == $run' provenance.json
+          node --test test/acceptance.test.mjs
+      - name: Record the integration deployment
+        env:
+          DOMAIN: ${{ inputs.domain }}
+        run: |
+          {
+            printf '## %s deployed to DEV\n\nSource: `%s`\n\n' "$DOMAIN" "$GITHUB_SHA"
+            printf 'Manual integration testing can continue. This run has no STAGE or PROD jobs.\n\n'
+            cat artifact/RELEASE.md
+          } >> "$GITHUB_STEP_SUMMARY"

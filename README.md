@@ -23,6 +23,14 @@ Source SHA, artifact ID, and SHA-256 checksums remain available as provenance. Y
 
 ## Two kinds of merge
 
+GitHub Actions shows separate entry points:
+
+- **Deploy DEV** (`deploy-dev.yml`): selected domains show build → DEV, with no STAGE or PROD jobs.
+- **Release domains** (`release.yml`): version-changed domains show build → STAGE → PROD, with no DEV jobs.
+- **Prepare semantic releases**: maintains the version and changelog PR.
+
+Both deployment entry points listen to pushes on `main` and run the shared selector. The inapplicable workflow ends after selection with its domain calls skipped. This avoids event chaining and cross-run artifact lookup. Shared building and selection use reusable workflows; STAGE and PROD stay in one release run with the same artifact ID.
+
 ```mermaid
 flowchart TD
   FEATURE[Feature PR + Nx version plan] --> MAIN[Merge into main]
@@ -80,10 +88,10 @@ Domain manifests start at `0.0.0` as a migration marker. Three initial plans cre
 
 After this setup merges:
 
-1. **Domain releases** validates integration builds on DEV.
+1. **Deploy DEV** validates integration builds on DEV.
 2. **Prepare semantic releases** runs Nx and opens **Prepare domain releases** from `release/versions`.
 3. Review its generated 1.0.0 versions and changelogs. Run or approve its required PR checks as described below.
-4. Merge that preparation PR. Each version-changed domain builds a candidate and requests STAGE approval after local build checks. No domain is redeployed to DEV by this merge.
+4. Merge that preparation PR. **Release domains** builds each version-changed candidate and requests STAGE approval after local build checks. **Deploy DEV** skips its domain jobs for this merge.
 5. Review the candidate contents and existing integration evidence, then approve the appropriate `stage-*` environments to begin release acceptance testing.
 6. Complete manual STAGE testing and approve `prod-*` environments.
 
