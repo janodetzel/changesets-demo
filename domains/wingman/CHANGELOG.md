@@ -1,3 +1,9 @@
+## 1.2.0 (2026-10-15)
+
+### 🚀 Features
+
+- Add Berlin to cities ([#31](https://github.com/janodetzel/changesets-demo/pull/31))
+
 ## 1.1.0 (2026-10-15)
 
 ### 🚀 Features
