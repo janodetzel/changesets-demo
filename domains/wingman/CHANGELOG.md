@@ -1,3 +1,22 @@
+# 1.3.0-rc.2
+
+Domain: **wingman**
+
+Stable production baseline: **1.2.0**
+
+Intended stable release: **1.3.0**
+
+## All changes since production 1.2.0
+
+- **minor**: Accidentially remove all cities
+
+- **minor**: Add Oslo to cities
+
+## Changes introduced in this candidate
+
+- **minor**: Add Oslo to cities
+
+
 # 1.3.0-rc.1
 
 Domain: **wingman**
