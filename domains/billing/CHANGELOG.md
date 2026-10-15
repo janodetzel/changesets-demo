@@ -1,3 +1,13 @@
+## 1.2.3 (2026-10-15)
+
+### 🚀 Features
+
+- **EMP-1234:** cleanup ([#52](https://github.com/janodetzel/changesets-demo/pull/52))
+
+### ❤️ Thank You
+
+- Jano @janodetzel
+
 ## 1.2.2 (2026-10-15)
 
 This was a version bump only for billing to align it with other projects, there were no code changes.

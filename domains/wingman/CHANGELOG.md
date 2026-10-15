@@ -1,3 +1,13 @@
+## 1.4.1 (2026-10-15)
+
+### 🚀 Features
+
+- **EMP-1234:** cleanup ([#52](https://github.com/janodetzel/changesets-demo/pull/52))
+
+### ❤️ Thank You
+
+- Jano @janodetzel
+
 ## 1.4.0 (2026-10-15)
 
 ### 🚀 Features
