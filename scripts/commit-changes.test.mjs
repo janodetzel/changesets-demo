@@ -5,9 +5,9 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { parse } from 'yaml';
-import { parseMessage, validatePR, changesSince } from './commit-changes.mjs';
+import { parseMessage, validatePR, changesSince, meaningfulFiles, runtimeDependenciesChanged } from './commit-changes.mjs';
 
-const filters = parse(readFileSync('.github/domain-paths.yml', 'utf8'));
+const filters = parse(readFileSync('.github/release-paths.yml', 'utf8'));
 const body = '## Release note\n\nAdd Berlin to cities.\n\n## Compatibility and migrations\n\nBackward compatible; no migrations.\n\n## Validation\n\nAcceptance passed.';
 
 test('standard commit types, exclamation marks, and breaking footers determine bumps', () => {
@@ -24,6 +24,18 @@ test('PR description coverage uses paths rather than a misleading title scope', 
   assert.throws(() => validatePR('feat: add city','## Release note\n\nCity.\n\n## Release note\n\nPlaceholder.',['domains/wingman/src/index.mjs'],filters), /exactly one/);
   assert.throws(() => validatePR('feat: add city','## Release note\n\n<!-- Instructions only. -->',['domains/wingman/src/index.mjs'],filters), /non-empty/);
   assert.deepEqual(validatePR('docs: update guide','',['README.md'],filters).affected,[]);
+  assert.throws(() => validatePR('feat: add city','## Release note\n\nDescribe the user-visible change. This text becomes part of the squash commit and release notes.',['domains/wingman/src/index.mjs'],filters), /placeholder/);
+});
+
+test('tooling and test changes do not become application release notes', () => {
+  for (const file of ['scripts/rc.mjs', '.github/workflows/domain-build.yml', 'domains/wingman/test/unit.test.mjs', 'pnpm-lock.yaml']) {
+    assert.deepEqual(validatePR('feat(release): improve tooling','',[file],filters).affected, []);
+  }
+  assert.equal(runtimeDependenciesChanged({devDependencies:{nx:'1'}},{devDependencies:{nx:'2'}}),false);
+  assert.equal(runtimeDependenciesChanged({dependencies:{lib:'1'}},{dependencies:{lib:'2'}}),true);
+  assert.deepEqual(validatePR('fix(deps): update runtime','## Release note\n\nUpdate runtime library.',['package.json'],filters,true).affected,['billing','payment','wingman']);
+  const old = {name:'@emp/wingman',version:'1.0.0',scripts:{build:'old'}};
+  assert.deepEqual(meaningfulFiles(['domains/wingman/package.json'],()=>old,()=>({...old,scripts:{build:'new'}})),[]);
 });
 
 test('real git history yields immutable domain changes and skips generated preparation commits', t => {
@@ -34,7 +46,7 @@ test('real git history yields immutable domain changes and skips generated prepa
   const write = (file,content) => { mkdirSync(join(cwd,file,'..'),{recursive:true});writeFileSync(join(cwd,file),content); };
   const commit = message => {git('add','.');git('commit','-m',message);return git('rev-parse','HEAD');};
   git('init','-b','main');
-  write('.github/domain-paths.yml',readFileSync('.github/domain-paths.yml','utf8'));
+  write('.github/release-paths.yml',readFileSync('.github/release-paths.yml','utf8'));
   write('domains/wingman/package.json',JSON.stringify({name:'@emp/wingman',version:'1.0.0'}));
   write('domains/wingman/src/index.mjs','export const cities=[];');
   const base=commit('Old pre-migration history');
@@ -46,6 +58,8 @@ test('real git history yields immutable domain changes and skips generated prepa
   write('packages/money/src/index.mjs','export const money=1;');
   const shared=commit('fix(money): correct rounding (#44)\n\n## Release note\n\nCorrect fractional monetary rounding.');
   write('README.md','Documentation');commit('Update documentation');
+  write('scripts/rc.mjs','// Tooling only');commit('feat(release): improve candidate notes');
+  write('domains/wingman/test/unit.test.mjs','// Test only');commit('test: improve coverage');
   const changes=changesSince(base,'HEAD',cwd);
   assert.deepEqual(changes.wingman.map(c=>c.commit),[feature]);
   assert.deepEqual(changes.billing.map(c=>c.commit),[shared]);

@@ -7,6 +7,7 @@ The repository is the demo. Nx Release updates domain manifests; `scripts/rc.mjs
 - Domain source lives in `domains/billing`, `domains/payment`, and `domains/wingman`.
 - Shared code is bundled by esbuild, so promotion needs no install or rebuild.
 - `.github/domain-paths.yml` selects domain release workflows. Update consumer mappings when adding shared build dependencies.
+- `.github/release-paths.yml` selects application SemVer impact separately. Release tooling and build-only changes must not create service release notes. RC counters reset per target and must avoid committed/tagged version collisions.
 - Feature merges deploy to DEV. Preparation merges build pinned candidates without touching DEV, then request manual STAGE and PROD approval. Integration and release flows have separate per-domain concurrency groups.
 - `deploy-dev.yml` and `release.yml` are separate entry points. Share building and selection through reusable workflows; keep STAGE and PROD in the same release run.
 - Deployments execute artifact tests and record GitHub Environment deployments. They simulate infrastructure deployment.

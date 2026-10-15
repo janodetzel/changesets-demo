@@ -15,7 +15,7 @@ const empty = domain => ({ domain, baseline: '0.0.0', target: null, version: nul
 export const candidateRecord = domain => existsSync(recordPath(domain)) ? read(recordPath(domain)) : empty(domain);
 const domainName = domain => ({ billing: 'Billing', payment: 'Payment Provider', wingman: 'Wingman' })[domain] || domain;
 
-export function nextCandidate(previous, stable, incoming) {
+export function nextCandidate(previous, stable, incoming, reservedVersions = []) {
   if (!semver.valid(stable.version) || semver.prerelease(stable.version)) throw new Error('Stable baseline must be a stable semantic version');
   if (semver.lt(stable.version, previous.baseline)) throw new Error('Production baseline moved backwards; reconcile before preparing');
   const shipped = new Set(stable.changeIds || []);
@@ -29,10 +29,26 @@ export function nextCandidate(previous, stable, incoming) {
   const rank = { patch: 1, minor: 2, major: 3 };
   const bump = changes.reduce((value, change) => rank[change.bump] > rank[value] ? change.bump : value, 'patch');
   const target = semver.inc(stable.version, bump);
-  const sequence = previous.sequence + 1;
+  let sequence = previous.target === target ? previous.sequence + 1 : 1;
+  for (const reserved of reservedVersions) {
+    const match = /^(\d+\.\d+\.\d+)-rc\.(\d+)$/.exec(reserved);
+    if (match?.[1] === target) sequence = Math.max(sequence, Number(match[2]) + 1);
+  }
   const version = `${target}-rc.${sequence}`;
   if (previous.version && !semver.gt(version, previous.version)) throw new Error('New candidate must advance beyond the previous candidate');
   return { domain: previous.domain, baseline: stable.version, target, version, sequence, changes, delta: fresh.map(change => change.id) };
+}
+
+export function reservedCandidates(domain) {
+  // Git records include rejected candidates that never acquired a GitHub tag.
+  const versions = new Set();
+  const git = args => execFileSync('git', args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
+  const commits = git(['log', '--format=%H', '--', recordPath(domain)]).split('\n').filter(Boolean);
+  for (const sha of commits) {
+    try { versions.add(JSON.parse(git(['show', `${sha}:${recordPath(domain)}`])).version); } catch { /* deleted record */ }
+  }
+  for (const tag of git(['tag', '--list', `${domain}@v*-rc.*`]).split('\n').filter(Boolean)) versions.add(tag.slice(`${domain}@v`.length));
+  return [...versions];
 }
 
 export function candidateNotes(record, { preview = false } = {}) {
@@ -93,7 +109,7 @@ async function prepare() {
         if (version && semver.gt(version, stable.version)) legacy.push({ id: hash(`legacy:${domain}:${version}:${section}`), bump: semver.major(version) > semver.major(stable.version) ? 'major' : semver.minor(version) > semver.minor(stable.version) ? 'minor' : 'patch', summary: section.replace(/^#{1,2} [^\n]+\n/, '').trim(), plan: `legacy-${version}` });
       }
     }
-    const next = nextCandidate(previous, stable, [...legacy, ...relevant]);
+    const next = nextCandidate(previous, stable, [...legacy, ...relevant], reservedCandidates(domain));
     if (!next) continue;
     // Nx owns package-manifest writes. Our policy supplies the explicit RC target.
     await nx.releaseVersion({ projects: [domain], specifier: next.version, gitCommit: false, gitTag: false });

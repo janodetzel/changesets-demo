@@ -3,7 +3,7 @@ import { appendFileSync, readFileSync, writeFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
 import { isDeepStrictEqual } from 'node:util';
-import { domains, validatePR, changesSince } from './commit-changes.mjs';
+import { domains, validatePR, changesSince, meaningfulFiles, runtimeDependenciesChanged } from './commit-changes.mjs';
 import { parse } from 'yaml';
 
 export { domains };
@@ -61,7 +61,11 @@ function main([command, argument]) {
       return;
     }
     const event = JSON.parse(read(process.env.GITHUB_EVENT_PATH));
-    validatePR(event.pull_request.title, event.pull_request.body || '', changed, parse(read('.github/domain-paths.yml')));
+    const before = file => { try { return JSON.parse(git(['show', `${argument}:${file}`])); } catch { return null; } };
+    const after = file => { try { return JSON.parse(read(file)); } catch { return null; } };
+    const files = meaningfulFiles(changed, before, after);
+    const rootRuntime = changed.includes('package.json') && runtimeDependenciesChanged(before('package.json') || {}, after('package.json') || {});
+    validatePR(event.pull_request.title, event.pull_request.body || '', files, parse(read('.github/release-paths.yml')), rootRuntime);
     for (const domain of domains) {
       if (JSON.parse(read(manifest(domain))).version !== versionAt(domain, argument)) throw new Error('Only the release preparation PR may change domain versions');
       if (changed.includes(`domains/${domain}/CHANGELOG.md`)) throw new Error('Nx generates changelogs in the release preparation PR');

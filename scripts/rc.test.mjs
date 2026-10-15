@@ -40,16 +40,24 @@ test('patch fixes preserve the active target; breaking changes escalate it', () 
   const stable = { version: '1.0.0', changeIds: [] };
   const first = nextCandidate(empty(), stable, [change('Hamburg')]);
   assert.equal(nextCandidate(first, stable, [change('fix', 'patch')]).version, '1.1.0-rc.2');
-  assert.equal(nextCandidate(first, stable, [change('break', 'major')]).version, '2.0.0-rc.2');
+  assert.equal(nextCandidate(first, stable, [change('break', 'major')]).version, '2.0.0-rc.1');
 });
 
 test('after finalization only unshipped changes affect the next target', () => {
   const first = nextCandidate(empty(), { version: '1.0.0', changeIds: [] }, [change('Hamburg')]);
   const finalized = { version: '1.1.0', changeIds: ['Hamburg'] };
   const second = nextCandidate(first, finalized, [change('fix', 'patch')]);
-  assert.equal(second.version, '1.1.1-rc.2');
+  assert.equal(second.version, '1.1.1-rc.1');
   assert.deepEqual(second.changes.map(c => c.id), ['fix']);
   assert.equal(nextCandidate(first, finalized, []), null);
+});
+
+test('candidate numbering resets per target without reusing reserved versions', () => {
+  const stable = { version: '1.0.0', changeIds: [] };
+  const first = nextCandidate(empty(), stable, [change('Hamburg')]);
+  assert.equal(nextCandidate(first, stable, [change('breaking', 'major')], ['2.0.0-rc.1', '2.0.0-rc.3']).version, '2.0.0-rc.4');
+  const finalized = { version: '1.1.0', changeIds: ['Hamburg'] };
+  assert.equal(nextCandidate(first, finalized, [change('Berlin')], ['1.1.0-rc.99']).version, '1.2.0-rc.1');
 });
 
 test('repeated history scans do not create new RCs or reintroduce shipped commits', () => {
