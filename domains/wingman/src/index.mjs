@@ -1,3 +1,3 @@
 export function locations() {
-  return { provider: 'HERE', cities: ['Oldenburg', 'Bremen', 'Hamburg'] };
+  return { provider: 'HERE', cities: ['Oldenburg', 'Bremen', 'Hamburg', 'Tokyo'] };
 }
