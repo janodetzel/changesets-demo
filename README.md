@@ -15,7 +15,7 @@ Code and data are fictional. Deployment jobs run bundled application code and ac
 A candidate now has a version such as **Billing 1.1.0**, with generated notes listing its feature and fix descriptions. The same notes appear in:
 
 - The **Prepare domain releases** PR body and generated `CHANGELOG.md` diff.
-- The versioned DEV job summary before STAGE approval.
+- The candidate build summary before STAGE approval.
 - The STAGE summary before PROD approval.
 - The final **Billing 1.1.0** GitHub Release, tagged `billing@v1.1.0`.
 
@@ -30,8 +30,8 @@ flowchart TD
   MAIN --> PREP[Bot refreshes Prepare domain releases PR]
   PREP --> REVIEW[Review independent versions and generated changelogs]
   REVIEW --> MERGE[Merge preparation PR]
-  MERGE --> BUILD[Build versioned candidates + DEV acceptance]
-  BUILD --> SAPP[Manual DEV testing; approve STAGE]
+  MERGE --> BUILD[Build pinned versioned candidates + local checks]
+  BUILD --> SAPP[Review candidate; approve STAGE deployment]
   SAPP --> STAGE[Same artifact to STAGE + tests]
   STAGE --> PAPP[Manual STAGE testing; approve PROD]
   PAPP --> PROD[Same artifact to PROD + smoke tests]
@@ -40,7 +40,9 @@ flowchart TD
 
 Feature merges deploy to DEV only. Their display version is an integration identifier such as `1.0.0-dev.123456`; it is not a stable release. Plans accumulate while teams integrate and test.
 
-Merging the preparation PR reserves stable versions, consumes their plans, and builds new candidates. Those exact versioned artifacts are tested again on DEV before manual promotion. Versioning is never applied after testing an artifact or during production deployment.
+Merging the preparation PR reserves stable versions, consumes their plans, and builds new candidates from that exact merge commit. **It does not deploy to DEV.** Candidate builds run unit and bundle acceptance checks locally, then wait for STAGE approval. STAGE validates the actual release artifact, followed by manual testing and production approval. Local build tests are not evidence of a DEV deployment.
+
+DEV may advance to newer feature commits while STAGE tests an older versioned candidate. Each build explicitly checks out its triggering SHA; a queued build never substitutes the latest `main`. STAGE and PROD download that build's immutable artifact ID. Manual DEV testing informs release preparation, but does not automatically approve a new release artifact for production.
 
 One preparation PR batches pending versions across the repository to minimize automation. Billing, Payment, and Wingman have independent version numbers and separate promotion jobs. A failed Payment acceptance test blocks only Payment's promotion, even when its version was prepared alongside Billing.
 
@@ -81,8 +83,8 @@ After this setup merges:
 1. **Domain releases** validates integration builds on DEV.
 2. **Prepare semantic releases** runs Nx and opens **Prepare domain releases** from `release/versions`.
 3. Review its generated 1.0.0 versions and changelogs. Run or approve its required PR checks as described below.
-4. Merge that preparation PR. Each changed domain builds a versioned candidate and requests STAGE approval after DEV checks.
-5. Complete manual DEV testing and approve the appropriate `stage-*` environments.
+4. Merge that preparation PR. Each version-changed domain builds a candidate and requests STAGE approval after local build checks. No domain is redeployed to DEV by this merge.
+5. Review the candidate contents and existing integration evidence, then approve the appropriate `stage-*` environments to begin release acceptance testing.
 6. Complete manual STAGE testing and approve `prod-*` environments.
 
 Existing build-ID GitHub Releases remain historical records. New successful semantic releases use tags such as `billing@v1.0.0`.
@@ -97,7 +99,9 @@ By default, the workflow uses `GITHUB_TOKEN`. Depending on GitHub's handling of 
 
 For automatic bot-PR checks, optionally set `RELEASE_PR_TOKEN` to a suitable token with repository contents and pull-request write access. A GitHub App token is preferable in EMP; that credential setup is outside this small demo. No registry or cloud credentials are needed.
 
-The required check names `test` and `changeset` are retained for existing branch rules. The latter now validates Nx version plans. Require this branch to be up to date before merging a preparation PR, and refresh it after new feature merges. The post-merge candidate check also refuses a changed version when unconsumed plans remain for that domain.
+The required check names `test` and `changeset` are retained for existing branch rules. The latter now validates Nx version plans. Require this branch to be up to date before merging a preparation PR, and refresh it after new feature merges. Both PR validation and post-merge classification reject application, build-script, or dependency changes mixed into a preparation. Only version fields, generated changelogs, and version-plan files are allowed. The post-merge check also refuses a changed version when unconsumed plans remain for that domain.
+
+Merge preparations as separate pushes. A multi-commit push that combines source changes with version preparation is rejected, rather than silently bypassing DEV integration. If a preparation fails this guard, correct it before retrying; there is no fallback deployment.
 
 ## Reservation is different from production deployment
 
@@ -122,9 +126,14 @@ The release PR updates while plans accumulate. New source changes require fresh 
 | Root dependencies, Nx/build/release configuration | All |
 | Root documentation only | None |
 
-Only a change to a domain's committed version enables STAGE and PROD jobs. An ordinary source change starts DEV only. Preparation PRs update manifests and changelogs, so path selection includes their domains automatically. New version plans alone refresh the preparation PR without starting domain deployments.
+An ordinary source change starts the selected domains' integration builds and DEV jobs only. When a push changes reserved domain versions, the classifier validates the preparation and selects only those version-changed domains for release builds, STAGE, and PROD. No DEV jobs run, even for another domain touched only by release metadata. New version plans alone refresh the preparation PR without starting domain deployments.
 
-Each domain's release workflow keeps its concurrency slot from DEV through manual approvals. New runs for that domain wait while an older candidate is being tested. Unrelated domains continue. GitHub retains only one pending run per group; further merges may replace queued runs. This is a small-demo queue, not a durable candidate backlog. If a versioned run is cancelled before deployment, its version stays reserved in Git and its notes stay in the changelog; rerun the original workflow when appropriate or prepare a later version.
+There are two independent concurrency groups per domain:
+
+- `integration-<domain>` serializes integration builds and DEV deployments.
+- `release-<domain>` holds a candidate stable through build, STAGE approval and testing, and PROD approval and deployment.
+
+A waiting Billing release no longer blocks a newer Billing integration deployment. Neither flow cancels an active deployment. GitHub retains only one pending run per group and does not guarantee FIFO order; further merges may replace queued runs. This is a small-demo queue, not a durable candidate backlog or a guarantee of monotonic DEV source revisions. If a versioned run is cancelled before deployment, its version stays reserved in Git and its notes stay in the changelog; rerun the original workflow when appropriate or prepare a later version.
 
 ## Tooling and local checks
 

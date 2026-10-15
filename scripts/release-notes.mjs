@@ -3,6 +3,7 @@ import { appendFileSync, existsSync, readFileSync, readdirSync, writeFileSync } 
 import { execFileSync } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
 import { parse } from 'yaml';
+import { isDeepStrictEqual } from 'node:util';
 
 export const domains = ['billing', 'payment', 'wingman'];
 const read = file => readFileSync(file, 'utf8');
@@ -33,6 +34,25 @@ export function plans() {
   });
 }
 
+export function validatePreparation(changed, beforeManifest, afterManifest) {
+  for (const file of changed.filter(Boolean)) {
+    if (!/^domains\/(billing|payment|wingman)\/(package\.json|CHANGELOG\.md)$/.test(file) && !/^\.nx\/version-plans\/[^/]+\.md$/.test(file)) {
+      throw new Error(`Preparation must contain only versions, changelogs, and consumed plans: ${file}`);
+    }
+    if (file.endsWith('/package.json')) {
+      const { version: oldVersion, ...before } = beforeManifest(file);
+      const { version: newVersion, ...after } = afterManifest(file);
+      if (!isDeepStrictEqual(before, after)) throw new Error(`Preparation must not change dependencies, scripts, or other package metadata: ${file}`);
+    }
+  }
+}
+
+const checkPreparation = (changed, base) => validatePreparation(
+  changed,
+  file => JSON.parse(git(['show', `${base}:${file}`])),
+  file => JSON.parse(read(file)),
+);
+
 function main([command, argument]) {
   if (command === 'check') {
     const changed = git(['diff', '--name-only', argument, 'HEAD']).split('\n');
@@ -44,7 +64,7 @@ function main([command, argument]) {
           entry(read(`domains/${domain}/CHANGELOG.md`), JSON.parse(read(manifest(domain))).version);
         }
       }
-      if (changed.some(file => !/^domains\/(billing|payment|wingman)\/(package\.json|CHANGELOG\.md)$/.test(file) && !file.startsWith('.nx/version-plans/'))) throw new Error('Release preparation PR must contain only versions, changelogs, and consumed plans');
+      checkPreparation(changed, argument);
       console.log('Release preparation has changelogs and no unconsumed plans for its versions');
       return;
     }
@@ -66,11 +86,17 @@ function main([command, argument]) {
       if (version === previous) return [];
       return [`## ${domain}: ${previous} → ${version}\n\n${entry(read(`domains/${domain}/CHANGELOG.md`), version)}`];
     });
-    writeFileSync('release-preview.md', `# Prepare domain releases\n\n${blocks.join('\n\n')}\n\nMerging reserves these versions and builds new candidates. It does not approve STAGE or PROD. Each domain deploys independently after its tests and manual approvals.\n`);
+    writeFileSync('release-preview.md', `# Prepare domain releases\n\n${blocks.join('\n\n')}\n\nMerging reserves these versions and builds candidates from the exact merge commit, without redeploying DEV. Review and approve each candidate for STAGE testing, then approve the same artifact for PROD.\n`);
     return;
   }
   if (command === 'candidate') {
     const pending = plans();
+    const changedVersions = domains.filter(domain => JSON.parse(read(manifest(domain))).version !== versionAt(domain, argument));
+    if (changedVersions.length) {
+      checkPreparation(git(['diff', '--name-only', argument, 'HEAD']).split('\n'), argument);
+    }
+    // Classify the whole push first: preparation never starts DEV for another domain.
+    if (process.env.GITHUB_OUTPUT) appendFileSync(process.env.GITHUB_OUTPUT, `preparation=${changedVersions.length > 0}\n`);
     for (const domain of domains) {
       const version = JSON.parse(read(manifest(domain))).version;
       const changed = version !== versionAt(domain, argument);

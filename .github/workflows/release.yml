@@ -7,14 +7,14 @@ permissions:
   actions: read
 jobs:
   changes:
-    name: Select changed domains
+    name: Select integration or release candidates
     runs-on: ubuntu-latest
     permissions:
       contents: read
     outputs:
-      billing: ${{ steps.filter.outputs.billing == 'true' || steps.filter.outputs.shared == 'true' }}
-      payment: ${{ steps.filter.outputs.payment == 'true' || steps.filter.outputs.shared == 'true' }}
-      wingman: ${{ steps.filter.outputs.wingman == 'true' || steps.filter.outputs.shared == 'true' }}
+      billing: ${{ steps.candidate.outputs.preparation == 'true' && steps.candidate.outputs.billing == 'true' || steps.candidate.outputs.preparation != 'true' && (steps.filter.outputs.billing == 'true' || steps.filter.outputs.shared == 'true') }}
+      payment: ${{ steps.candidate.outputs.preparation == 'true' && steps.candidate.outputs.payment == 'true' || steps.candidate.outputs.preparation != 'true' && (steps.filter.outputs.payment == 'true' || steps.filter.outputs.shared == 'true') }}
+      wingman: ${{ steps.candidate.outputs.preparation == 'true' && steps.candidate.outputs.wingman == 'true' || steps.candidate.outputs.preparation != 'true' && (steps.filter.outputs.wingman == 'true' || steps.filter.outputs.shared == 'true') }}
       release_billing: ${{ steps.candidate.outputs.billing }}
       release_payment: ${{ steps.candidate.outputs.payment }}
       release_wingman: ${{ steps.candidate.outputs.wingman }}
@@ -43,11 +43,17 @@ jobs:
         run: node scripts/release-notes.mjs candidate "$BASE_SHA"
       - name: Explain domain selection
         env:
-          BILLING: ${{ steps.filter.outputs.billing == 'true' || steps.filter.outputs.shared == 'true' }}
-          PAYMENT: ${{ steps.filter.outputs.payment == 'true' || steps.filter.outputs.shared == 'true' }}
-          WINGMAN: ${{ steps.filter.outputs.wingman == 'true' || steps.filter.outputs.shared == 'true' }}
+          PREPARATION: ${{ steps.candidate.outputs.preparation }}
+          BILLING: ${{ steps.candidate.outputs.preparation == 'true' && steps.candidate.outputs.billing == 'true' || steps.candidate.outputs.preparation != 'true' && (steps.filter.outputs.billing == 'true' || steps.filter.outputs.shared == 'true') }}
+          PAYMENT: ${{ steps.candidate.outputs.preparation == 'true' && steps.candidate.outputs.payment == 'true' || steps.candidate.outputs.preparation != 'true' && (steps.filter.outputs.payment == 'true' || steps.filter.outputs.shared == 'true') }}
+          WINGMAN: ${{ steps.candidate.outputs.preparation == 'true' && steps.candidate.outputs.wingman == 'true' || steps.candidate.outputs.preparation != 'true' && (steps.filter.outputs.wingman == 'true' || steps.filter.outputs.shared == 'true') }}
         run: |
           {
+            if [[ "$PREPARATION" == 'true' ]]; then
+              printf '## Release preparation\n\nBuild versioned candidates for STAGE. **No DEV deployments in this run.**\n\n'
+            else
+              printf '## Integration\n\nDeploy changed domains to DEV only. No STAGE or PROD approvals in this run.\n\n'
+            fi
             printf '## Domain selection\n\n| Domain | Selected |\n| --- | --- |\n'
             printf '| Billing | %s |\n| Payment Provider | %s |\n| Wingman | %s |\n' "$BILLING" "$PAYMENT" "$WINGMAN"
             printf '\nUnselected domains keep their current deployments and pending candidates. See the filter step for matching paths.\n'

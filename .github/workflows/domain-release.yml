@@ -12,16 +12,15 @@ permissions:
   contents: write
   actions: read
 concurrency:
-  # Reserve this domain through manual DEV testing, STAGE, and PROD approval.
-  group: release-${{ inputs.domain }}
+  # Candidate approvals never block the integration environment.
+  group: ${{ inputs.release_candidate && 'release' || 'integration' }}-${{ inputs.domain }}
   cancel-in-progress: false
 jobs:
-  dev:
-    name: DEV ${{ inputs.domain }}
+  build:
+    name: Build ${{ inputs.release_candidate && 'candidate' || 'integration' }} ${{ inputs.domain }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
-    environment: dev-${{ inputs.domain }}
     outputs:
       artifact_id: ${{ steps.upload.outputs.artifact-id }}
       version: ${{ steps.notes.outputs.version }}
@@ -29,6 +28,8 @@ jobs:
       DOMAIN: ${{ inputs.domain }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with:
@@ -37,8 +38,8 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - name: Build this domain with its shared dependencies
         run: pnpm --filter "@emp/$DOMAIN" build
-      - name: Deploy to DEV (simulated) and run acceptance tests against the bundle
-        run: pnpm --filter "@emp/$DOMAIN" test:acceptance
+      - name: Check source and bundle before any deployment
+        run: pnpm --filter "@emp/$DOMAIN" test && pnpm --filter "@emp/$DOMAIN" test:acceptance
       - name: Prepare version and readable candidate notes
         id: notes
         env:
@@ -62,7 +63,7 @@ jobs:
             --arg run "$GITHUB_RUN_ID" --arg attempt "$GITHUB_RUN_ATTEMPT" \
             '{domain:$domain,version:$version,sourceSha:$sha,runId:$run,attempt:$attempt}' > artifact/provenance.json
           (cd artifact && sha256sum dist/index.mjs test/acceptance.test.mjs RELEASE.md CHANGELOG.md provenance.json > SHA256SUMS)
-      - name: Store only artifacts that passed DEV acceptance
+      - name: Store the checked artifact
         id: upload
         uses: actions/upload-artifact@v4
         with:
@@ -80,9 +81,9 @@ jobs:
             printf '## %s %s\n\n' "$DOMAIN" "$VERSION"
             printf 'Source: `%s`\n\n' "$GITHUB_SHA"
             if [[ "$RELEASE_CANDIDATE" == 'true' ]]; then
-              printf 'Finish manual DEV testing, then approve **stage-%s** for this version.\n\n' "$DOMAIN"
+              printf 'Built from the preparation merge commit. **DEV was not redeployed.** Review these contents and approve **stage-%s** to begin release acceptance testing. Local bundle checks do not constitute DEV deployment evidence.\n\n' "$DOMAIN"
             else
-              printf 'Integration build only. Review the **Prepare domain releases** PR to finalize versions and changelogs before promotion.\n\n'
+              printf 'Integration build only. The next job deploys this artifact to DEV. Review the **Prepare domain releases** PR to finalize versions and changelogs before promotion.\n\n'
             fi
             printf '[Download immutable artifact](%s)\n\n' "$ARTIFACT_URL"
             cat artifact/RELEASE.md
@@ -90,10 +91,46 @@ jobs:
       - name: Explain an unsuccessful candidate
         if: failure()
         run: |
-          printf '## %s is not ready\n\nBuild or DEV checks failed. No promotable artifact was uploaded. Other domains can still release.\n' "$DOMAIN" >> "$GITHUB_STEP_SUMMARY"
+          printf '## %s is not ready\n\nBuild or local checks failed. This run cannot deploy the domain. Other domains can still proceed.\n' "$DOMAIN" >> "$GITHUB_STEP_SUMMARY"
+  dev:
+    name: DEV ${{ inputs.domain }}
+    needs: build
+    if: ${{ !inputs.release_candidate }}
+    runs-on: ubuntu-latest
+    environment: dev-${{ inputs.domain }}
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          artifact-ids: ${{ needs.build.outputs.artifact_id }}
+          merge-multiple: true
+          path: artifact
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Deploy to DEV (simulated) and run acceptance tests
+        working-directory: artifact
+        env:
+          DOMAIN: ${{ inputs.domain }}
+        run: |
+          sha256sum --check SHA256SUMS
+          jq -e --arg domain "$DOMAIN" --arg sha "$GITHUB_SHA" --arg run "$GITHUB_RUN_ID" \
+            '.domain == $domain and .sourceSha == $sha and .runId == $run' provenance.json
+          node --test test/acceptance.test.mjs
+      - name: Record the integration deployment
+        env:
+          DOMAIN: ${{ inputs.domain }}
+        run: |
+          {
+            printf '## %s deployed to DEV\n\nSource: `%s`\n\n' "$DOMAIN" "$GITHUB_SHA"
+            printf 'Manual integration testing can continue here. This run does not request STAGE or PROD approval.\n\n'
+            cat artifact/RELEASE.md
+          } >> "$GITHUB_STEP_SUMMARY"
   stage:
-    name: STAGE ${{ inputs.domain }} ${{ needs.dev.outputs.version }}
-    needs: dev
+    name: STAGE ${{ inputs.domain }} ${{ needs.build.outputs.version }}
+    needs: build
     if: inputs.release_candidate
     runs-on: ubuntu-latest
     permissions:
@@ -103,7 +140,7 @@ jobs:
     steps:
       - uses: actions/download-artifact@v4
         with:
-          artifact-ids: ${{ needs.dev.outputs.artifact_id }}
+          artifact-ids: ${{ needs.build.outputs.artifact_id }}
           merge-multiple: true
           path: artifact
       - uses: actions/setup-node@v4
@@ -132,8 +169,8 @@ jobs:
             printf '```\n'
           } >> "$GITHUB_STEP_SUMMARY"
   production:
-    name: PROD ${{ inputs.domain }} ${{ needs.dev.outputs.version }}
-    needs: [dev, stage]
+    name: PROD ${{ inputs.domain }} ${{ needs.build.outputs.version }}
+    needs: [build, stage]
     runs-on: ubuntu-latest
     environment: prod-${{ inputs.domain }}
     permissions:
@@ -142,7 +179,7 @@ jobs:
     steps:
       - uses: actions/download-artifact@v4
         with:
-          artifact-ids: ${{ needs.dev.outputs.artifact_id }}
+          artifact-ids: ${{ needs.build.outputs.artifact_id }}
           merge-multiple: true
           path: artifact
       - uses: actions/setup-node@v4
@@ -172,7 +209,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           DOMAIN: ${{ inputs.domain }}
-          ARTIFACT_ID: ${{ needs.dev.outputs.artifact_id }}
+          ARTIFACT_ID: ${{ needs.build.outputs.artifact_id }}
         run: |
           VERSION=$(jq -r .version artifact/provenance.json)
           TAG="$DOMAIN@v$VERSION"
