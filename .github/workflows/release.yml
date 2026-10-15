@@ -4,7 +4,7 @@ on:
     branches: [main]
 permissions:
   contents: write
-  actions: read
+  actions: write
 jobs:
   changes:
     name: Select versioned domains

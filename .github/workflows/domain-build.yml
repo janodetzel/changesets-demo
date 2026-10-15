@@ -57,6 +57,9 @@ jobs:
             --arg run "$GITHUB_RUN_ID" --arg attempt "$GITHUB_RUN_ATTEMPT" \
             '{domain:$domain,version:$version,sourceSha:$sha,runId:$run,attempt:$attempt}' > artifact/provenance.json
           (cd artifact && sha256sum dist/index.mjs test/acceptance.test.mjs RELEASE.md CHANGELOG.md provenance.json > SHA256SUMS)
+          if [[ -f artifact/candidate.json ]]; then
+            (cd artifact && sha256sum candidate.json >> SHA256SUMS)
+          fi
       - uses: actions/upload-artifact@v4
         id: upload
         with:
