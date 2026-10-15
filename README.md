@@ -57,6 +57,8 @@ pnpm exec nx release --skip-publish
 
 Nx writes independent package versions and changelogs. `peter-evans/create-pull-request` opens or updates `release/versions`. One shared preparation PR can reserve several domain versions; deployments remain independently approved.
 
+Generated notes include Nx's contributor attribution and PR/commit references. Squash subjects should retain their `(#PR-number)` suffix so Nx can render PR links. Authors use recorded Git identities; automatic username lookup is disabled to avoid an additional external identity service. No custom author or PR lookup is required.
+
 Preparation pushes may contain only domain manifest version fields and changelogs. Mixing source, dependencies, or workflow changes with version reservation is rejected rather than bypassing DEV. Keep preparation PRs up to date before merging.
 
 Nx uses tags to calculate versions. If a previous preparation has not yet registered its tag, the preparation job stops and explains that it must be retried after the release build starts. Full history and tags are fetched. Never move or reuse a version tag.
