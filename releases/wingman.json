@@ -1,0 +1,18 @@
+{
+  "domain": "wingman",
+  "baseline": "1.2.0",
+  "target": "1.3.0",
+  "version": "1.3.0-rc.1",
+  "sequence": 1,
+  "changes": [
+    {
+      "id": "16473d6dfb06cc7df2f6f43d478ef0d9ca0c00130e4462354e050dafc21c2c0f",
+      "bump": "minor",
+      "summary": "Accidentially remove all cities",
+      "plan": "version-plan-1792088408006.md"
+    }
+  ],
+  "delta": [
+    "16473d6dfb06cc7df2f6f43d478ef0d9ca0c00130e4462354e050dafc21c2c0f"
+  ]
+}
