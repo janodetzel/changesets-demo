@@ -31,7 +31,9 @@ Runtime source or domain dependency changes cannot be labeled as no-release chor
 
 When opening a PR, retain the prefilled release note if it came from the commit body, or add the section manually. Existing PR descriptions are not changed by deleting the template; remove any previously appended duplicate sections once.
 
-The optional scope is a human label. **Changed paths determine affected domains**, using `.github/domain-paths.yml`. For example, a `fix(money): ...` commit touching `packages/money/**` gives Billing and Payment a patch bump, but not Wingman. One commit has one bump, applied to all consumers. If domains genuinely need different bumps, split the PRs or accept the conservative shared bump; per-domain override syntax is not implemented.
+The optional scope is a human label. **Application paths determine version impact**, using `.github/release-paths.yml`. A `fix(money): ...` commit touching shared money source gives Billing and Payment a patch bump, but not Wingman. Source and runtime manifest changes count; documentation, tests, workflow code, release tooling, scripts, and devDependency-only edits do not. Root runtime dependency changes conservatively affect all domains. One commit has one bump, applied to all affected consumers.
+
+`.github/domain-paths.yml` separately selects builds and DEV deployments. A release-tooling change may trigger verification builds without changing application versions or polluting user-facing changelogs. Lockfile-only changes trigger builds but do not reserve versions automatically; pair a runtime dependency update with its manifest change and a meaningful release commit.
 
 ## Configure squash merges correctly
 
@@ -52,7 +54,7 @@ With production on Wingman 1.0.0:
 5. The notes show one cumulative list: **Hamburg + Berlin since production**.
 6. Fresh STAGE validation and PROD approval finalize stable 1.1.0, pointing to the accepted executable artifact unchanged.
 
-Compatible additions and fixes join the active target. A breaking stable contract escalates the major target. After stable 1.1.0, a patch targets 1.1.1 and a minor addition targets 1.2.0. Candidate sequence numbers keep increasing per domain across targets to avoid name reuse.
+Compatible additions and fixes join the active target. A breaking stable contract escalates the major target. After stable 1.1.0, a patch targets 1.1.1 and a minor addition targets 1.2.0. Each new target starts at rc.1; further candidates for that target increment the counter. Committed candidate history and existing tags protect against reusing an already reserved target/RC number. Previously published versions remain unchanged.
 
 Scanning history again without new release-relevant commits does not create another RC. Shipped change IDs are excluded when calculating the next target. A shared preparation PR can prepare multiple domains, but each domain's approvals and production version remain independent.
 

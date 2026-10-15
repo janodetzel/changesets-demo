@@ -11,7 +11,7 @@ export const domains = ['billing', 'payment', 'wingman'];
 const types = new Set(['feat', 'fix', 'perf', 'refactor', 'revert', 'docs', 'test', 'ci', 'chore', 'build', 'style']);
 const parser = new CommitParser({ headerPattern: /^(\w+)(?:\(([^)]+)\))?!?: (.+)$/, headerCorrespondence: ['type', 'scope', 'subject'], noteKeywords: ['BREAKING CHANGE', 'BREAKING-CHANGE'] });
 const git = (args, cwd = process.cwd()) => execFileSync('git', args, { cwd, encoding: 'utf8' }).trim();
-const config = cwd => yaml(readFileSync(`${cwd}/.github/domain-paths.yml`, 'utf8'));
+const config = cwd => yaml(readFileSync(`${cwd}/.github/release-paths.yml`, 'utf8'));
 
 export function parseMessage(message) {
   const parsed = parser.parse(message);
@@ -30,7 +30,24 @@ export function section(body, title) {
 
 export function affectedDomains(files, filters) {
   const match = name => files.some(picomatch(filters[name], { dot: true }));
-  return domains.filter(domain => match(domain) || match('shared'));
+  return domains.filter(domain => match(domain) || (filters.shared && match('shared')));
+}
+
+export function runtimeDependenciesChanged(before, after) {
+  return ['dependencies', 'optionalDependencies', 'peerDependencies'].some(key => !isDeepStrictEqual(before[key] || {}, after[key] || {}));
+}
+
+export function meaningfulFiles(files, beforeManifest, afterManifest) {
+  return releaseFiles(files).filter(file => {
+    if (!file.endsWith('/package.json')) return true;
+    const before = beforeManifest(file);
+    const after = afterManifest(file);
+    if (!before || !after) return true;
+    // Manifest names/type/exports can change the public contract. Scripts and
+    // devDependencies are build tooling; generated version fields aren't source.
+    const omit = ({ version, scripts, devDependencies, nx, ...runtime }) => runtime;
+    return !isDeepStrictEqual(omit(before), omit(after));
+  });
 }
 
 // Documentation and generated release metadata cannot cause another application
@@ -39,16 +56,21 @@ export function releaseFiles(files) {
   return files.filter(file => !file.endsWith('.md') && !file.startsWith('releases/') && !file.startsWith('.nx/version-plans/'));
 }
 
-export function validatePR(title, body, files, filters) {
+export function validatePR(title, body, files, filters, rootRuntimeChanged = false) {
   const parsed = parseMessage(`${title}\n\n${body}`);
-  const affected = affectedDomains(releaseFiles(files), filters);
-  const runtime = files.some(file => /^domains\/[^/]+\/(src\/|package\.json$)/.test(file) || file.startsWith('packages/'));
+  const affected = rootRuntimeChanged ? domains : affectedDomains(releaseFiles(files), filters);
+  const runtime = affected.length > 0;
   if (runtime && !parsed.bump) throw new Error('Runtime source or domain dependencies require feat, fix, perf, refactor, revert, or an explicit breaking change');
   if (affected.length && parsed.bump) {
     if ([...body.matchAll(/^##\s+Release note\s*$/gmi)].length !== 1) throw new Error('Keep exactly one ## Release note section');
-    if (!section(body, 'Release note')) throw new Error('Add a non-empty ## Release note section to the PR description');
+    validateReleaseNote(section(body, 'Release note'));
   }
   return { affected, bump: parsed.bump };
+}
+
+export function validateReleaseNote(note) {
+  if (!note) throw new Error('Add a non-empty ## Release note section to the PR description');
+  if (/describe the user-visible change|this text becomes part of the squash commit|state backward compatibility, breaking changes|describe the checks and manual tests performed/i.test(note)) throw new Error('Replace the template placeholder with an actual release note');
 }
 
 export function changesSince(base, head = 'HEAD', cwd = process.cwd()) {
@@ -68,19 +90,22 @@ export function changesSince(base, head = 'HEAD', cwd = process.cwd()) {
       return isDeepStrictEqual(before, after);
     });
     if (generated) continue;
-    const affected = affectedDomains(releaseFiles(files), filters);
+    const at = (ref, file) => { try { return JSON.parse(git(['show', `${ref}:${file}`], cwd)); } catch { return null; } };
+    const relevantFiles = meaningfulFiles(files, file => at(`${sha}^`, file), file => at(sha, file));
+    const rootRuntime = files.includes('package.json') && runtimeDependenciesChanged(at(`${sha}^`, 'package.json') || {}, at(sha, 'package.json') || {});
+    const affected = rootRuntime ? domains : affectedDomains(relevantFiles, filters);
     if (!affected.length) continue;
     const message = git(['show', '-s', '--format=%B', sha], cwd);
     let parsed;
     try { parsed = parseMessage(message); } catch (error) { throw new Error(`${sha.slice(0, 8)}: ${error.message}. Fix commit metadata before preparing a release.`); }
-    const runtime = files.some(file => /^domains\/[^/]+\/(src\/|package\.json$)/.test(file) || file.startsWith('packages/'));
+    const runtime = affected.length > 0;
     if (!parsed.bump) {
       if (runtime) throw new Error(`${sha.slice(0, 8)}: runtime changes have no release bump`);
       continue;
     }
     const note = section(message, 'Release note');
     const compatibility = section(message, 'Compatibility and migrations');
-    if (!note) throw new Error(`${sha.slice(0, 8)}: squash commit must preserve its Release note section`);
+    try { validateReleaseNote(note); } catch (error) { throw new Error(`${sha.slice(0, 8)}: ${error.message}`); }
     const number = /\(#(\d+)\)/.exec(parsed.header)?.[1];
     const repository = process.env.GITHUB_REPOSITORY || 'janodetzel/changesets-demo';
     const reference = number ? `[PR #${number}](https://github.com/${repository}/pull/${number})` : `commit ${sha.slice(0, 8)}`;
