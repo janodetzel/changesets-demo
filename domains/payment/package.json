@@ -1,5 +1,7 @@
 {
   "name": "@emp/payment",
+  "version": "0.0.0",
+  "nx": { "name": "payment" },
   "private": true,
   "type": "module",
   "scripts": {

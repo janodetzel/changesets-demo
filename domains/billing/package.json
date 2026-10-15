@@ -1,5 +1,7 @@
 {
   "name": "@emp/billing",
+  "version": "0.0.0",
+  "nx": { "name": "billing" },
   "private": true,
   "type": "module",
   "scripts": {

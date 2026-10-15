@@ -15,8 +15,13 @@ jobs:
       billing: ${{ steps.filter.outputs.billing == 'true' || steps.filter.outputs.shared == 'true' }}
       payment: ${{ steps.filter.outputs.payment == 'true' || steps.filter.outputs.shared == 'true' }}
       wingman: ${{ steps.filter.outputs.wingman == 'true' || steps.filter.outputs.shared == 'true' }}
+      release_billing: ${{ steps.candidate.outputs.billing }}
+      release_payment: ${{ steps.candidate.outputs.payment }}
+      release_wingman: ${{ steps.candidate.outputs.wingman }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: dorny/paths-filter@0e4a8c6effa4802afeda77dc8d303f8176d7dfad # v3
         id: filter
         with:
@@ -25,6 +30,17 @@ jobs:
           base: ${{ github.event.before != '0000000000000000000000000000000000000000' && github.event.before || github.ref }}
           ref: ${{ github.event.before != '0000000000000000000000000000000000000000' && github.sha || github.ref }}
           filters: .github/domain-paths.yml
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Identify finalized semantic versions
+        id: candidate
+        env:
+          BASE_SHA: ${{ github.event.before }}
+        run: node scripts/release-notes.mjs candidate "$BASE_SHA"
       - name: Explain domain selection
         env:
           BILLING: ${{ steps.filter.outputs.billing == 'true' || steps.filter.outputs.shared == 'true' }}
@@ -43,6 +59,7 @@ jobs:
     uses: ./.github/workflows/domain-release.yml
     with:
       domain: billing
+      release_candidate: ${{ needs.changes.outputs.release_billing == 'true' }}
   payment:
     name: Payment Provider
     needs: changes
@@ -50,6 +67,7 @@ jobs:
     uses: ./.github/workflows/domain-release.yml
     with:
       domain: payment
+      release_candidate: ${{ needs.changes.outputs.release_payment == 'true' }}
   wingman:
     name: Wingman
     needs: changes
@@ -57,3 +75,4 @@ jobs:
     uses: ./.github/workflows/domain-release.yml
     with:
       domain: wingman
+      release_candidate: ${{ needs.changes.outputs.release_wingman == 'true' }}

@@ -1,5 +1,6 @@
 packages:
   - domains/*
   - packages/*
-allowBuilds:
-  esbuild: true
+onlyBuiltDependencies:
+  - esbuild
+  - nx

@@ -9,6 +9,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with:
@@ -17,12 +19,26 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm build && pnpm test
   changeset:
-    # Existing repository rules require this name. Reuse it for release-note review.
+    # Retain the existing required-check name for version-plan review.
     runs-on: ubuntu-latest
+    env:
+      NX_DAEMON: 'false'
     steps:
       - uses: actions/checkout@v4
-      - name: Verify domain release descriptions exist
+        with:
+          fetch-depth: 0
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Check release intent and domain coverage
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_REF: ${{ github.head_ref }}
         run: |
-          for domain in billing payment wingman; do
-            test -s "domains/$domain/RELEASE.md"
-          done
+          node scripts/release-notes.mjs check "$BASE_SHA"
+          if [[ "$HEAD_REF" != 'release/versions' ]]; then
+            pnpm release:check --base="$BASE_SHA" --head=HEAD
+          fi

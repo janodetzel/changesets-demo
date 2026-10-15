@@ -1,0 +1,46 @@
+name: Prepare semantic releases
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: write
+  pull-requests: write
+concurrency:
+  group: prepare-semantic-releases
+  cancel-in-progress: false
+jobs:
+  prepare:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    env:
+      NX_DAEMON: 'false'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Generate versions and changelogs with Nx
+        run: pnpm release:prepare
+      - name: Validate the prepared candidate
+        run: pnpm build && pnpm test
+      - name: Open or refresh the release preparation PR
+        uses: peter-evans/create-pull-request@22a9089034f40e5a961c8808d113e2c98fb63676 # v7
+        with:
+          token: ${{ secrets.RELEASE_PR_TOKEN || github.token }}
+          branch: release/versions
+          base: main
+          title: Prepare domain releases
+          commit-message: Prepare domain versions and changelogs
+          body-path: release-preview.md
+          add-paths: |
+            domains/*/package.json
+            domains/*/CHANGELOG.md
+            .nx/version-plans/*.md
+          delete-branch: true
