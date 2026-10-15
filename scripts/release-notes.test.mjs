@@ -53,6 +53,7 @@ test('integration and promotion have disjoint environments and independent locks
   for (const job of [dev, stage]) assert.ok(!job.steps.some(step => step.uses === 'actions/checkout@v4'));
   assert.ok(!production.steps.some(step => /pnpm.*build/.test(step.run || '')), 'production metadata finalization must not rebuild the application');
   assert.equal(build.steps[0].with.ref, '${{ github.sha }}', 'queued builds must pin the triggering commit');
+  assert.equal(build.steps[0].with['fetch-depth'], 0, 'commit-based artifact notes need history back to the migration boundary');
   for (const [name, flow, domainWorkflow] of [['deploy-dev', 'dev', 'domain-dev'], ['release', 'release', 'domain-release']]) {
     const entrypoint = load(name);
     assert.equal(entrypoint.jobs.changes.with.flow, flow);
