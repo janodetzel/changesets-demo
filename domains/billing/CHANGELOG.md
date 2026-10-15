@@ -1,3 +1,9 @@
+## 1.1.0 (2026-10-15)
+
+### 🚀 Features
+
+- invoices now have documents ([#25](https://github.com/janodetzel/changesets-demo/pull/25))
+
 # 1.0.0 (2026-10-15)
 
 ### ⚠️  Breaking Changes
