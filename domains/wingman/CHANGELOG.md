@@ -1,3 +1,13 @@
+## 1.4.0 (2026-10-15)
+
+### 🚀 Features
+
+- **wingman:** add support for Tokyo ([#49](https://github.com/janodetzel/changesets-demo/pull/49))
+
+### ❤️ Thank You
+
+- Jano @janodetzel
+
 ## 1.3.1 (2026-10-15)
 
 This was a version bump only for wingman to align it with other projects, there were no code changes.
