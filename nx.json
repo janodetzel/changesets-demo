@@ -14,7 +14,7 @@
     "changelog": {
       "projectChangelogs": {
         "createRelease": false,
-        "renderOptions": { "authors": true, "applyUsernameToAuthors": false, "commitReferences": true },
+        "renderOptions": { "authors": true, "applyUsernameToAuthors": true, "commitReferences": true },
         "repositoryUrl": "https://github.com/janodetzel/changesets-demo"
       }
     },
