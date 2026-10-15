@@ -28,14 +28,24 @@ jobs:
           node-version: 24
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - name: Require registered source tags before preparing another version
+      - name: Wait for registered source tags before preparing another version
         run: |
+          # The release build registers each domain's version tag shortly after
+          # the preparation merge lands, so poll instead of failing the race.
           for domain in billing payment wingman; do
             VERSION=$(jq -r .version "domains/$domain/package.json")
-            git rev-parse --verify "refs/tags/$domain@v$VERSION" > /dev/null || {
-              printf 'Version tag %s@v%s is not registered yet. Retry after its release build starts.\n' "$domain" "$VERSION"
-              exit 1
-            }
+            TAG="$domain@v$VERSION"
+            for attempt in $(seq 1 30); do
+              if git rev-parse --verify --quiet "refs/tags/$TAG" > /dev/null \
+                || git fetch origin "refs/tags/$TAG:refs/tags/$TAG" 2> /dev/null; then
+                break
+              fi
+              if [[ "$attempt" -eq 30 ]]; then
+                printf 'Version tag %s was not registered within 10 minutes. Check its release build.\n' "$TAG"
+                exit 1
+              fi
+              sleep 20
+            done
           done
       - name: Prepare versions and changelogs with native Nx Release
         run: pnpm release:prepare
