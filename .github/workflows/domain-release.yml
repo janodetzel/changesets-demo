@@ -1,0 +1,158 @@
+name: Release one domain
+on:
+  workflow_call:
+    inputs:
+      domain:
+        type: string
+        required: true
+permissions:
+  contents: write
+  actions: read
+concurrency:
+  # Reserve this domain through manual DEV testing, STAGE, and PROD approval.
+  group: release-${{ inputs.domain }}
+  cancel-in-progress: false
+jobs:
+  dev:
+    name: DEV ${{ inputs.domain }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    environment: dev-${{ inputs.domain }}
+    outputs:
+      artifact_id: ${{ steps.upload.outputs.artifact-id }}
+    env:
+      DOMAIN: ${{ inputs.domain }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Build this domain with its shared dependencies
+        run: pnpm --filter "@emp/$DOMAIN" build
+      - name: Deploy to DEV (simulated) and run acceptance tests against the bundle
+        run: pnpm --filter "@emp/$DOMAIN" test:acceptance
+      - name: Prepare the tested artifact and its provenance
+        run: |
+          mkdir -p artifact/dist artifact/test
+          cp "domains/$DOMAIN/dist/index.mjs" artifact/dist/
+          cp "domains/$DOMAIN/test/acceptance.test.mjs" artifact/test/
+          cp "domains/$DOMAIN/RELEASE.md" artifact/
+          jq -n --arg domain "$DOMAIN" --arg sha "$GITHUB_SHA" \
+            --arg run "$GITHUB_RUN_ID" --arg attempt "$GITHUB_RUN_ATTEMPT" \
+            '{domain:$domain,sourceSha:$sha,runId:$run,attempt:$attempt}' > artifact/provenance.json
+          (cd artifact && sha256sum dist/index.mjs test/acceptance.test.mjs RELEASE.md provenance.json > SHA256SUMS)
+      - name: Store only artifacts that passed DEV acceptance
+        id: upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: dev-tested-${{ inputs.domain }}-${{ github.run_attempt }}
+          path: artifact/
+          if-no-files-found: error
+          retention-days: 90
+      - name: Record the promotion candidate
+        env:
+          ARTIFACT_URL: ${{ steps.upload.outputs.artifact-url }}
+        run: |
+          {
+            printf '## %s awaits manual DEV testing\n\n' "$DOMAIN"
+            printf 'Source: `%s`\n\n' "$GITHUB_SHA"
+            printf 'Automated checks passed. Finish manual testing on DEV, then use **Review deployments** to approve **stage-%s** for this exact candidate.\n\n' "$DOMAIN"
+            printf '[Download immutable artifact](%s)\n\n' "$ARTIFACT_URL"
+            cat "domains/$DOMAIN/RELEASE.md"
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Explain an unsuccessful candidate
+        if: failure()
+        run: |
+          printf '## %s is not ready\n\nBuild or DEV checks failed. No promotable artifact was uploaded. Other domains can still release.\n' "$DOMAIN" >> "$GITHUB_STEP_SUMMARY"
+  stage:
+    name: STAGE ${{ inputs.domain }}
+    needs: dev
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
+    environment: stage-${{ inputs.domain }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          artifact-ids: ${{ needs.dev.outputs.artifact_id }}
+          merge-multiple: true
+          path: artifact
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Verify and deploy to STAGE (simulated), then test
+        working-directory: artifact
+        env:
+          DOMAIN: ${{ inputs.domain }}
+        run: |
+          sha256sum --check SHA256SUMS
+          jq -e --arg domain "$DOMAIN" --arg sha "$GITHUB_SHA" --arg run "$GITHUB_RUN_ID" \
+            '.domain == $domain and .sourceSha == $sha and .runId == $run' provenance.json
+          node --test test/acceptance.test.mjs
+      - name: Summarize the production candidate
+        env:
+          DOMAIN: ${{ inputs.domain }}
+        run: |
+          {
+            printf '## %s passed automated STAGE checks\n\nSource: `%s`\n\n' "$DOMAIN" "$GITHUB_SHA"
+            printf 'Finish manual STAGE testing, then approve **prod-%s** through **Review deployments**.\n\n' "$DOMAIN"
+            cat artifact/RELEASE.md
+            printf '\n### Exact artifact checksums\n\n```\n'
+            cat artifact/SHA256SUMS
+            printf '```\n'
+          } >> "$GITHUB_STEP_SUMMARY"
+  production:
+    name: PROD ${{ inputs.domain }}
+    needs: [dev, stage]
+    runs-on: ubuntu-latest
+    environment: prod-${{ inputs.domain }}
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          artifact-ids: ${{ needs.dev.outputs.artifact_id }}
+          merge-multiple: true
+          path: artifact
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Deploy unchanged artifact to PROD (simulated) and smoke test
+        working-directory: artifact
+        env:
+          DOMAIN: ${{ inputs.domain }}
+        run: |
+          sha256sum --check SHA256SUMS
+          jq -e --arg domain "$DOMAIN" --arg sha "$GITHUB_SHA" --arg run "$GITHUB_RUN_ID" \
+            '.domain == $domain and .sourceSha == $sha and .runId == $run' provenance.json
+          node --test test/acceptance.test.mjs
+      - name: Create a domain release record
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DOMAIN: ${{ inputs.domain }}
+          ARTIFACT_ID: ${{ needs.dev.outputs.artifact_id }}
+        run: |
+          BUILD_ATTEMPT=$(jq -r .attempt artifact/provenance.json)
+          TAG="$DOMAIN-build-$GITHUB_RUN_ID-$BUILD_ATTEMPT"
+          {
+            cat artifact/RELEASE.md
+            printf '\nSource: `%s`\n\n' "$GITHUB_SHA"
+            printf 'Build, STAGE approval, and PROD approval: https://github.com/%s/actions/runs/%s\n\n' "$GITHUB_REPOSITORY" "$GITHUB_RUN_ID"
+            printf 'Immutable Actions artifact ID: `%s`\n\n' "$ARTIFACT_ID"
+            printf 'This release applies only to **%s**. Other domains retain their previous releases.\n' "$DOMAIN"
+          } > "$RUNNER_TEMP/notes.md"
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+            printf 'Release %s already exists; preserving its original record.\n' "$TAG"
+          else
+            gh release create "$TAG" artifact/provenance.json artifact/SHA256SUMS \
+              --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
+              --title "$DOMAIN · build $GITHUB_RUN_ID / $BUILD_ATTEMPT" \
+              --notes-file "$RUNNER_TEMP/notes.md" --latest=false
+          fi
+          printf '## Released %s\n\n[Domain release](https://github.com/%s/releases/tag/%s)\n' "$DOMAIN" "$GITHUB_REPOSITORY" "$TAG" >> "$GITHUB_STEP_SUMMARY"

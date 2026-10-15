@@ -1,0 +1,23 @@
+name: Domain releases
+on:
+  push:
+    branches: [main]
+permissions:
+  contents: write
+  actions: read
+jobs:
+  billing:
+    name: Billing
+    uses: ./.github/workflows/domain-release.yml
+    with:
+      domain: billing
+  payment:
+    name: Payment Provider
+    uses: ./.github/workflows/domain-release.yml
+    with:
+      domain: payment
+  wingman:
+    name: Wingman
+    uses: ./.github/workflows/domain-release.yml
+    with:
+      domain: wingman

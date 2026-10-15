@@ -1,31 +1,28 @@
 # EMP independent-release demo
 
-This repository demonstrates a multi-team monorepo release flow using **GitHub Actions, workflow artifacts, Environments, and Releases**. The repository itself is the demo. There is no dashboard or custom release engine.
+This repository demonstrates independent domain releases using GitHub Actions, immutable artifacts, Environments, and Releases. There is no dashboard or custom release engine.
 
-Billing, Payment Provider, and Wingman share one integration branch. Each domain can promote a tested artifact to production independently. Infrastructure deployments are simulated by running the domain's bundled code and acceptance tests in GitHub Environment jobs.
+Billing, Payment Provider, and Wingman share `main` as their integration branch. Each domain builds once and promotes the same artifact through DEV, STAGE, and PROD. Deployments are simulated by executing bundled application code and acceptance tests in GitHub Environment jobs.
 
-## The flow
+## The flow for each domain
 
 ```mermaid
-flowchart LR
+flowchart TD
   PR[Feature PR: code + release notes] --> CHECK[Build + unit tests]
   CHECK --> MAIN[Squash merge to main]
-  MAIN --> B[Billing: build + DEV acceptance]
-  MAIN --> P[Payment: build + DEV acceptance]
-  MAIN --> W[Wingman: build + DEV acceptance]
-  B --> BA[Immutable Billing artifact]
-  P --> PA[Immutable Payment artifact]
-  W --> WA[Immutable Wingman artifact]
-  BA --> SELECT[Select domain + build run]
-  PA --> SELECT
-  WA --> SELECT
-  SELECT --> STAGE[Test that artifact on STAGE]
-  STAGE --> APPROVE[Domain production approval]
-  APPROVE --> PROD[Same artifact to PROD]
+  MAIN --> DEV[Build artifact; deploy DEV; automated tests]
+  DEV --> MANUALDEV[Team tests this candidate on DEV]
+  MANUALDEV --> APPROVESTAGE[Approve stage-domain in Review deployments]
+  APPROVESTAGE --> STAGE[Same artifact to STAGE; automated tests]
+  STAGE --> MANUALSTAGE[Team tests this candidate on STAGE]
+  MANUALSTAGE --> APPROVEPROD[Approve prod-domain in Review deployments]
+  APPROVEPROD --> PROD[Same artifact to PROD; smoke tests]
   PROD --> RELEASE[Domain tag + GitHub Release]
 ```
 
-`main` is the integration branch, equivalent to EMP's current `dev` role. It is not a declaration that every domain is ready for production. Full acceptance tests run after merge. Production state is the last successful deployment for each domain.
+The three domains follow this sequence independently in the same workflow run. There is no build ID to copy and no promotion workflow to dispatch. A failed or waiting Payment job does not block Billing or Wingman.
+
+Automated tests are prerequisites, not release approval. The team approves STAGE only after manual DEV testing, then approves PROD after manual STAGE testing. Add a test-evidence link or explanation in the GitHub approval comment.
 
 ## Domains
 
@@ -35,120 +32,107 @@ flowchart LR
 | `payment` | Godzilla | Authorize and refund a payment | `@emp/money` |
 | `wingman` | Hangover | Return locations from a proxy | None |
 
-The examples use fictional code and data. They do not call EMP APIs. These three sample services have no runtime dependency on each other. This keeps the demo focused on independent promotion. Real EMP services additionally need contract tests against the relevant deployed peer versions.
+These are fictional implementations with no calls to EMP APIs. The sample domains have no runtime dependencies on each other. Real EMP domains also need contract tests against the relevant deployed peer versions.
 
-## GitHub setup
+## Configure approvals before merging the workflows
 
-Before trying a production promotion, configure the environments in **Settings → Environments**:
+In **Settings → Environments**, create or update:
 
-| Domain | DEV | STAGE | Production |
+| Domain | DEV, no approval | STAGE, required reviewer | PROD, required reviewer |
 | --- | --- | --- | --- |
 | Billing | `dev-billing` | `stage-billing` | `prod-billing` |
 | Payment | `dev-payment` | `stage-payment` | `prod-payment` |
 | Wingman | `dev-wingman` | `stage-wingman` | `prod-wingman` |
 
-For each `prod-*` environment, add required reviewers. In a company repository, choose the owning team or its release reviewers. For this personal sandbox, choose the maintainer. Disable self-review prevention if the same person must run the entire demonstration. Restrict deployment branches to `main`.
+For every `stage-*` and `prod-*` environment:
 
-GitHub requires approval only when environment protection is configured. An automatically created environment has no approval gate. The workflows do not configure settings for you.
+1. Enable **Required reviewers** and select the maintainer for this personal demo, or the owning team's reviewers in a company repository.
+2. Leave **Prevent self-review** disabled if one person runs the demonstration.
+3. Restrict deployment branches to `main`.
 
-Use a PR to land this setup on `main`, then use PRs for demo changes. The existing repository rules require `test` and `changeset`. PR checks retain those names; the `changeset` check now verifies that domain release descriptions exist. It does not generate versions. It can be renamed together with the repository rules later.
+GitHub pauses a job only when required reviewers are configured. Merely naming an environment in YAML does not create an approval gate. An automatically created environment has no reviewer protection. Configure both stages before merging this workflow change.
 
-No secrets, registry, cloud account, or paid deployment platform is needed. `GITHUB_TOKEN` downloads artifacts and creates release records.
+The existing required PR checks `test` and `changeset` are retained. The latter verifies that domain release descriptions exist; it does not generate versions. No custom secrets or cloud accounts are needed.
 
-## Demonstrate a complete release
+## Demonstrate independent releases
 
-### 1. Establish a baseline
+### 1. Establish the baseline
 
-Merge the setup PR into `main`. Open **Actions → Build and test on DEV**. The three domain jobs build their application and run acceptance checks.
+Merge the setup PR into `main`, then open **Actions → Domain releases**.
 
-Each successful job uploads `dev-tested-<domain>-<attempt>`. Its job summary includes the build run ID, attempt, source commit, and release description. Failed domains upload no promotable artifact.
+Each domain's DEV job builds its bundle, runs acceptance tests, and uploads an immutable artifact. The summary shows the source SHA, release description, and artifact link. Its STAGE job then waits for approval.
 
-Run **Actions → Promote domain → Run workflow** from `main` with:
+Use **Review deployments** to approve `stage-billing` after reviewing the candidate and completing manual DEV testing. Billing deploys to STAGE and runs its automated checks. It then waits at `prod-billing`. Complete manual STAGE testing and approve production.
 
-- Domain: `billing`.
-- Build run: the numeric ID from the DEV run URL or job summary.
-- Build attempt: normally `1`.
+Repeat for Payment and Wingman. You can approve several environment entries together when their candidates are ready, or advance one domain at a time.
 
-The workflow downloads the existing artifact, checks its provenance and checksums, and tests it on STAGE. Approve `prod-billing` when GitHub requests a review. The production job downloads the same immutable artifact, runs smoke checks, and creates a release such as `billing-build-123456789-1`.
+Each production job creates a domain release such as `billing-build-123456789-1`, including the source commit, workflow link, provenance, and checksums. The run ID is traceability metadata, not user input.
 
-Repeat for Payment and Wingman to establish their baseline releases.
+### 2. Merge changes with different readiness
 
-### 2. Integrate work that is not ready everywhere
+Open a feature PR with these changes:
 
-Open a feature PR that makes these changes:
+1. Add `description: 'Charging session'` to the invoice response in `domains/billing/src/index.mjs`.
+2. Add `'Hamburg'` to the cities in `domains/wingman/src/index.mjs`.
+3. In `domains/payment/src/index.mjs`, deliberately return `refundedCents: cents(amountCents)`. This incorrectly converts cents a second time.
+4. Describe the changes in the corresponding `domains/<domain>/RELEASE.md` files.
 
-1. In `domains/billing/src/index.mjs`, add `description: 'Charging session'` to the invoice response.
-2. In `domains/wingman/src/index.mjs`, add `'Hamburg'` to the city list.
-3. In `domains/payment/src/index.mjs`, deliberately change the refund result to `refundedCents: cents(amountCents)`. This accidentally converts cents a second time.
-4. Describe each change in the corresponding `domains/<domain>/RELEASE.md`.
+PR unit tests pass because the small Payment unit test covers authorization. Its full refund acceptance test runs after merge. This deliberately demonstrates late defect discovery, not a recommended gap in production unit coverage.
 
-PR unit checks pass because the simplified Payment unit test covers authorization, not the full refund flow. This intentionally illustrates EMP's constraint: some defects are discovered only in acceptance testing after integration. It is not a recommendation to omit refund unit tests in production code.
+After merging, Billing and Wingman pass DEV checks and wait for their STAGE approvals. Payment fails acceptance with 59000 refunded cents instead of 590. It uploads no promotable artifact and never reaches STAGE approval.
 
-Squash-merge the PR. The DEV run shows:
+Test and approve Billing and Wingman through both environments. Payment retains its baseline production release. No branch manipulation or feature flags are needed.
 
-- Billing passes and has a promotable artifact.
-- Wingman passes and has a promotable artifact.
-- Payment fails: 59000 refunded cents instead of 590. It has no promotable artifact from this attempt.
+### 3. Demonstrate a manual hold
 
-The workflow uses `fail-fast: false`, so Payment's failure does not cancel the other jobs.
+For an automatically passing candidate that still needs manual work, leave its STAGE approval pending. Record the reason on its PR or workflow discussion. It remains visible in Actions as waiting for review. Other domains can continue.
 
-### 3. Release Billing and Wingman independently
+To abandon a candidate, reject its environment deployment. Avoid cancelling the whole workflow run unless all domains should stop. GitHub review approvals do not themselves prove manual testing happened; the reviewer is responsible for the evidence.
 
-Dispatch **Promote domain** once for Billing and once for Wingman, using the new build run ID. Approve each production environment.
+### 4. Fix and release Payment
 
-The build run is red overall because Payment failed. Promotion deliberately accepts successful domain artifacts from that run. It validates the build's workflow, event, branch, completed attempt, and source SHA rather than requiring every domain to pass.
+Open a PR restoring `refundedCents: amountCents` and explain the fix in `domains/payment/RELEASE.md`. Merge, wait for Payment's DEV tests, and approve its STAGE and PROD jobs after manual testing.
 
-Payment stays on its baseline production release. Trying to promote Payment from the failed attempt stops at artifact download because that artifact does not exist.
+The minimal demo builds every domain on each merge, including shared code. It therefore also creates new Billing and Wingman candidates. Their production jobs still require separate approval; they do not have to release with Payment.
 
-### 4. Fix and release Payment later
+## Keep the candidate stable during manual testing
 
-Open another PR restoring `refundedCents: amountCents`, with a release-note explanation. Merge it, wait for Payment's DEV acceptance to pass, and promote Payment from that run.
+The reusable workflow has one concurrency group per domain with cancellation disabled. A domain reserves its slot from DEV through both approvals and PROD. A newer merge cannot overwrite that domain's DEV or STAGE candidate while the team tests it. Other domains use separate groups.
 
-No Billing or Wingman deployment is required. All three domains build on each merge in this small demo, but only the explicitly selected domain is promoted. Building everything avoids adding an affected-project tool while still including changes to shared libraries.
+The tradeoff is deliberate: while Billing waits for approval, newer Billing runs wait before deployment to DEV. This small demo prioritizes a stable manual-test candidate over a continuously advancing shared DEV environment.
 
-## Where to see what is happening
+GitHub's standard concurrency queue retains at most one running and one pending workflow per group. Further merges can replace older pending candidates, with cancellations visible in Actions. The newest candidate contains the integrated source changes. This is not an unlimited release backlog.
 
-| Question | GitHub view |
+When evolving the demo to real EMP environments, revisit this policy if DEV must always advance. Separate test environments or explicit version checks would then be needed to prevent stale manual approval.
+
+## Trace the release through GitHub
+
+| Question | View |
 | --- | --- |
-| What source changes were integrated? | Merged PRs and `main` history |
-| Which domain passed DEV acceptance? | Individual domain jobs and artifacts in the DEV run |
-| What can be promoted? | `dev-tested-*` artifacts and their job summaries |
-| What is waiting for approval? | Pending `prod-*` environment jobs |
-| What was released for a domain? | Domain-specific GitHub Releases and deployment history |
-| Which source and artifact were used? | Release tag, `provenance.json`, and `SHA256SUMS` |
-| What changed since a domain's previous release? | Compare its previous release tag with the candidate source SHA, inspect the domain and shared dependency changes |
+| What was integrated? | Merged PRs and `main` history |
+| Which domains passed automated DEV tests? | Domain DEV jobs and uploaded artifacts |
+| What needs manual testing and STAGE approval? | Pending `stage-*` jobs and DEV summaries |
+| What needs production approval? | Pending `prod-*` jobs and STAGE summaries |
+| What shipped for a domain? | Domain-specific GitHub Releases and deployment history |
+| What exact code and artifact were tested? | Source SHA, artifact ID, `provenance.json`, and `SHA256SUMS` |
 
-`RELEASE.md` is a reviewed, cumulative description of a domain. Its exact contents are bundled with each candidate and copied into the GitHub Release. PR authors should add entries with the original PR or work-item reference when available.
+`RELEASE.md` is a reviewed, cumulative description of a domain. Its contents travel with the artifact and appear in its GitHub Release. Add original PR or work-item references when available. Compare the previous domain release tag with the candidate source to investigate unreleased source changes, including shared dependencies.
 
-For a tested change intentionally deferred by a team, add a `release-held` label and a reason to its original PR, then leave its candidate unpromoted. Remove the label when it ships. This is a manual convention, not an automated gate. The minimal demo does not reconstruct a feature-level backlog automatically. Deployment state remains domain-specific, even when one PR touches several domains.
+## Artifact guarantees and demo limits
 
-## What makes this independent
+esbuild bundles shared code into each application. STAGE and PROD download the same artifact by its immutable Actions artifact ID. They perform no source checkout, dependency installation, or rebuild. Checksums and provenance are verified in both jobs.
 
-- Every domain has its own production environment and approval.
-- A failed DEV job prevents only that domain's artifact from being uploaded.
-- Promotion downloads the bundle and its tests from one specific run attempt. It never checks out current application source, installs dependencies, or rebuilds.
-- esbuild includes shared code inside each domain bundle. A later edit to `@emp/money` cannot change an existing artifact.
-- Workflow artifacts are immutable under `upload-artifact@v4`. SHA-256 checks catch accidental modification after download.
-- Per-domain promotion concurrency keeps one promotion active while it moves through STAGE and approval. Other domains have separate groups.
-- GitHub records a separate release tag per domain and build. The root package version does not determine deployment.
+Job outputs carry the artifact ID between steps, including when only failed jobs are rerun. Artifact names include the build attempt to avoid collisions when DEV is rebuilt. The release tag uses the attempt stored inside that artifact, not the attempt of a later production retry.
 
-Approvals and environment deployment records identify the promotion workflow's commit. The artifact's source commit can be older. Always use the job summary or release provenance to identify the deployed source.
+The environment jobs simulate deployment on GitHub runners. There are no long-running DEV, STAGE, or PROD services. Manual approval demonstrates the team decision, rather than interaction with a deployed user interface. Real EMP deployment adapters and acceptance checks would replace the marked simulation steps.
 
-An older artifact may be deliberately selected, including for a rollback demonstration. GitHub's deployment history records deployment order. The demo does not enforce monotonic source revisions or model database rollback safety.
+Artifacts expire after 90 days. GitHub can also expire long-waiting approval runs. An expired or deleted artifact cannot be promoted. Release provenance survives as release assets, but application bundles are not archived there. A real implementation needs durable artifact storage and a candidate-expiry policy.
 
-## Limits kept explicit
+If a real deployment changes infrastructure before a test or release-record step fails, production may already have changed. This example does not model partial infrastructure deployment, migrations, or data recovery.
 
-The jobs simulate deployment by running bundled domain code on GitHub runners. There are no continuously running DEV, STAGE, or PROD services. In EMP, replace those marked steps with the real artifact deployment adapter and environment-specific checks.
+The demo uses domain build IDs, not package SemVer. Published libraries and their Changesets or Nx release process can be added separately. It does not implement feature selection inside an artifact: without feature flags, unfinished behavior holds back that domain's candidate.
 
-Artifact retention is 90 days. An expired or deleted artifact cannot be promoted. Release provenance survives as release assets, but application bundles are not archived there. A production implementation would use durable artifact storage.
-
-GitHub's standard concurrency queue may replace an older pending run when several dispatches target the same domain. That cancellation is visible in Actions. Dispatch one candidate at a time per domain for the demo.
-
-If smoke tests or release-record creation fail after a real deployment, the running version may already have changed. GitHub job success alone would not describe that partial state. This example does not implement partial infrastructure deployment or migration recovery.
-
-Feature flags, cherry-pick selection, automated dependency resolution, package-registry publication, and per-package SemVer are intentionally outside this demo. Domain build IDs identify deployments. Changesets or Nx Release can be added separately when published library versions become part of the demonstration.
-
-## Run the checks locally
+## Local checks and workflow files
 
 ```sh
 pnpm install --frozen-lockfile
@@ -157,16 +141,14 @@ pnpm test
 pnpm test:acceptance
 ```
 
-The source and release logic are small enough to read directly:
-
 ```text
-.github/workflows/pr.yml       Build and unit checks before merge
-.github/workflows/dev.yml      Build and acceptance per domain after merge
-.github/workflows/promote.yml  Download → STAGE → approval → PROD → Release
+.github/workflows/pr.yml              Build and unit checks before merge
+.github/workflows/release.yml         Three independent calls on a main push
+.github/workflows/domain-release.yml  DEV → STAGE approval → STAGE → PROD approval → PROD
 domains/{billing,payment,wingman}/
-  src/index.mjs               Example application code
-  test/unit.test.mjs          Fast PR checks
-  test/acceptance.test.mjs    Tests against the built artifact
-  RELEASE.md                  Reviewed release description
-packages/money/               Shared library bundled into consumers
+  src/index.mjs                      Example application code
+  test/unit.test.mjs                 Fast PR checks
+  test/acceptance.test.mjs           Tests against the built artifact
+  RELEASE.md                        Reviewed release description
+packages/money/                      Shared library bundled into consumers
 ```
