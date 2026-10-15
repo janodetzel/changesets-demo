@@ -1,3 +1,13 @@
+## 1.4.2 (2026-10-15)
+
+### 🩹 Fixes
+
+- **EMP-1235:** re-adding Tokyo ([#54](https://github.com/janodetzel/changesets-demo/pull/54))
+
+### ❤️ Thank You
+
+- Jano @janodetzel
+
 ## 1.4.1 (2026-10-15)
 
 ### 🚀 Features
