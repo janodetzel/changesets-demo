@@ -6,7 +6,7 @@ There are **no Changesets or Nx version-plan files**. Nx updates domain manifest
 
 ## Write one release description: the PR
 
-Use the repository PR template and a Conventional Commit title:
+Use a Conventional Commit title and one Release note section in the description. There is deliberately no automatic PR template: GitHub can append that template to release notes already prefilled from a commit body.
 
 ```text
 feat(wingman): add Berlin to supported cities
@@ -28,6 +28,8 @@ Backward compatible. No migration required.
 | `docs`, `test`, `ci`, `chore`, `build`, `style` | No application bump unless explicitly breaking |
 
 Runtime source or domain dependency changes cannot be labeled as no-release chores. PR validation checks this, requires exactly one non-empty **Release note** section when needed, and reruns on description edits. Include compatibility and migration details in that note when relevant. It retains the required check name `changeset` for compatibility with existing branch rules; the name no longer implies plan files.
+
+When opening a PR, retain the prefilled release note if it came from the commit body, or add the section manually. Existing PR descriptions are not changed by deleting the template; remove any previously appended duplicate sections once.
 
 The optional scope is a human label. **Changed paths determine affected domains**, using `.github/domain-paths.yml`. For example, a `fix(money): ...` commit touching `packages/money/**` gives Billing and Payment a patch bump, but not Wingman. One commit has one bump, applied to all consumers. If domains genuinely need different bumps, split the PRs or accept the conservative shared bump; per-domain override syntax is not implemented.
 
