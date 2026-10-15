@@ -1,3 +1,9 @@
+## 1.2.0 (2026-10-15)
+
+### 🚀 Features
+
+- Update docs ([#28](https://github.com/janodetzel/changesets-demo/pull/28))
+
 ## 1.1.0 (2026-10-15)
 
 ### 🚀 Features
