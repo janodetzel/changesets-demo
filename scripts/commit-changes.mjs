@@ -45,8 +45,8 @@ export function validatePR(title, body, files, filters) {
   const runtime = files.some(file => /^domains\/[^/]+\/(src\/|package\.json$)/.test(file) || file.startsWith('packages/'));
   if (runtime && !parsed.bump) throw new Error('Runtime source or domain dependencies require feat, fix, perf, refactor, revert, or an explicit breaking change');
   if (affected.length && parsed.bump) {
+    if ([...body.matchAll(/^##\s+Release note\s*$/gmi)].length !== 1) throw new Error('Keep exactly one ## Release note section');
     if (!section(body, 'Release note')) throw new Error('Add a non-empty ## Release note section to the PR description');
-    if (!section(body, 'Compatibility and migrations')) throw new Error('Add ## Compatibility and migrations to the PR description');
   }
   return { affected, bump: parsed.bump };
 }
@@ -80,11 +80,11 @@ export function changesSince(base, head = 'HEAD', cwd = process.cwd()) {
     }
     const note = section(message, 'Release note');
     const compatibility = section(message, 'Compatibility and migrations');
-    if (!note || !compatibility) throw new Error(`${sha.slice(0, 8)}: squash commit must preserve Release note and Compatibility and migrations sections`);
+    if (!note) throw new Error(`${sha.slice(0, 8)}: squash commit must preserve its Release note section`);
     const number = /\(#(\d+)\)/.exec(parsed.header)?.[1];
     const repository = process.env.GITHUB_REPOSITORY || 'janodetzel/changesets-demo';
     const reference = number ? `[PR #${number}](https://github.com/${repository}/pull/${number})` : `commit ${sha.slice(0, 8)}`;
-    const summary = `${note}\n\n${compatibility}\n\n${reference}${parsed.notes.length ? '\n\n' + parsed.notes.map(item => `${item.title}: ${item.text}`).join('\n') : ''}`;
+    const summary = `${note}${compatibility ? `\n\n${compatibility}` : ''}\n\n${reference}${parsed.notes.length ? '\n\n' + parsed.notes.map(item => `${item.title}: ${item.text}`).join('\n') : ''}`;
     for (const domain of affected) result[domain].push({ id: `commit:${sha}:${domain}`, commit: sha, bump: parsed.bump, summary });
   }
   return result;

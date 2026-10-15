@@ -17,13 +17,7 @@ feat(wingman): add Berlin to supported cities
 
 Add Berlin to the supported cities.
 
-## Compatibility and migrations
-
 Backward compatible. No migration required.
-
-## Validation
-
-Location acceptance tests passed.
 ```
 
 | Title or footer | Release impact |
@@ -33,17 +27,17 @@ Location acceptance tests passed.
 | `feat!: ...`, `fix(scope)!: ...`, or a `BREAKING CHANGE:` footer | Major |
 | `docs`, `test`, `ci`, `chore`, `build`, `style` | No application bump unless explicitly breaking |
 
-Runtime source or domain dependency changes cannot be labeled as no-release chores. PR validation checks this, requires meaningful release-note and compatibility sections when needed, and reruns on description edits. It retains the required check name `changeset` for compatibility with existing branch rules; the name no longer implies plan files.
+Runtime source or domain dependency changes cannot be labeled as no-release chores. PR validation checks this, requires exactly one non-empty **Release note** section when needed, and reruns on description edits. Include compatibility and migration details in that note when relevant. It retains the required check name `changeset` for compatibility with existing branch rules; the name no longer implies plan files.
 
 The optional scope is a human label. **Changed paths determine affected domains**, using `.github/domain-paths.yml`. For example, a `fix(money): ...` commit touching `packages/money/**` gives Billing and Payment a patch bump, but not Wingman. One commit has one bump, applied to all consumers. If domains genuinely need different bumps, split the PRs or accept the conservative shared bump; per-domain override syntax is not implemented.
 
 ## Configure squash merges correctly
 
-In **Settings → General → Pull Requests**, allow squash merging and select **Default commit message → Pull request title and description**. Keep normal merges and rebase merges disabled for this demo. At merge time, preserve the validated title, the two release sections, breaking-change footer if present, and the PR number suffix.
+In **Settings → General → Pull Requests**, allow squash merging and select **Default commit message → Pull request title and description**. Keep normal merges and rebase merges disabled for this demo. At merge time, preserve the validated title, the Release note section, breaking-change footer if present, and the PR number suffix.
 
 This setting must be configured by a repository administrator; changing workflow files does not set GitHub's merge defaults. The current CLI credential cannot inspect or update all repository administration settings. PR checks validate the proposed title and body, but a maintainer can still edit the squash message in GitHub's merge dialog. Preparation fails visibly if an affected commit lacks valid metadata; it does not silently omit runtime changes. Do not amend published integration history to fix descriptions; correct the release process before retrying and reconcile malformed history explicitly if needed.
 
-The squash **commit** is the historical source of truth. Editing or deleting a PR description after merge cannot rewrite release notes. `Release note` and `Compatibility and migrations` are extracted, while test instructions are left out of release notes. PR numbers in the squash title become links.
+The squash **commit** is the historical source of truth. Editing or deleting a PR description after merge cannot rewrite release notes. The Release note is extracted; older commits' optional Compatibility and migrations sections remain supported. PR numbers in the squash title become links.
 
 ## Growing RCs: Hamburg, then Berlin
 

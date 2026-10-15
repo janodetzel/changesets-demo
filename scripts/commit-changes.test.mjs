@@ -20,7 +20,9 @@ test('PR description coverage uses paths rather than a misleading title scope', 
   assert.deepEqual(validatePR('fix(wingman): correct money rounding',body,['packages/money/src/index.mjs'],filters), { affected:['billing','payment'],bump:'patch' });
   assert.throws(() => validatePR('chore: change cities',body,['domains/wingman/src/index.mjs'],filters), /Runtime/);
   assert.throws(() => validatePR('feat: add city','',['domains/wingman/src/index.mjs'],filters), /Release note/);
-  assert.throws(() => validatePR('feat: add city','## Release note\n\nCity.',['domains/wingman/src/index.mjs'],filters), /Compatibility/);
+  assert.doesNotThrow(() => validatePR('feat: add city','## Release note\n\nCity.',['domains/wingman/src/index.mjs'],filters));
+  assert.throws(() => validatePR('feat: add city','## Release note\n\nCity.\n\n## Release note\n\nPlaceholder.',['domains/wingman/src/index.mjs'],filters), /exactly one/);
+  assert.throws(() => validatePR('feat: add city','## Release note\n\n<!-- Instructions only. -->',['domains/wingman/src/index.mjs'],filters), /non-empty/);
   assert.deepEqual(validatePR('docs: update guide','',['README.md'],filters).affected,[]);
 });
 
@@ -42,7 +44,7 @@ test('real git history yields immutable domain changes and skips generated prepa
   write('releases/wingman.json','{}');
   commit('Prepare domain releases (#43)');
   write('packages/money/src/index.mjs','export const money=1;');
-  const shared=commit(`fix(money): correct rounding (#44)\n\n${body}`);
+  const shared=commit('fix(money): correct rounding (#44)\n\n## Release note\n\nCorrect fractional monetary rounding.');
   write('README.md','Documentation');commit('Update documentation');
   const changes=changesSince(base,'HEAD',cwd);
   assert.deepEqual(changes.wingman.map(c=>c.commit),[feature]);
