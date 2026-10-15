@@ -13,6 +13,7 @@ const hash = value => createHash('sha256').update(value).digest('hex');
 const gh = args => execFileSync('gh', args, { encoding: 'utf8' }).trim();
 const empty = domain => ({ domain, baseline: '0.0.0', target: null, version: null, sequence: 0, changes: [], delta: [] });
 export const candidateRecord = domain => existsSync(recordPath(domain)) ? read(recordPath(domain)) : empty(domain);
+const domainName = domain => ({ billing: 'Billing', payment: 'Payment Provider', wingman: 'Wingman' })[domain] || domain;
 
 export function nextCandidate(previous, stable, incoming) {
   if (!semver.valid(stable.version) || semver.prerelease(stable.version)) throw new Error('Stable baseline must be a stable semantic version');
@@ -34,10 +35,16 @@ export function nextCandidate(previous, stable, incoming) {
   return { domain: previous.domain, baseline: stable.version, target, version, sequence, changes, delta: fresh.map(change => change.id) };
 }
 
-export function candidateNotes(record) {
-  const delta = new Set(record.delta);
+export function candidateNotes(record, { preview = false } = {}) {
   const format = changes => changes.map(change => `- **${change.bump}**: ${change.summary}`).join('\n\n') || '- No new change descriptions.';
-  return `# ${record.version}\n\nDomain: **${record.domain}**\n\nStable production baseline: **${record.baseline}**\n\nIntended stable release: **${record.target}**\n\n## All changes since production ${record.baseline}\n\n${format(record.changes)}\n\n## Changes introduced in this candidate\n\n${format(record.changes.filter(change => delta.has(change.id)))}\n`;
+  const heading = preview ? `## ${domainName(record.domain)} · ${record.version}` : `# ${record.version} · ${domainName(record.domain)}`;
+  const subheading = preview ? '###' : '##';
+  return `${heading}\n\n${subheading} All changes since production ${record.baseline}\n\n${format(record.changes)}\n`;
+}
+
+export function preparationNotes(records) {
+  const table = records.length ? `| Domain | Production | Candidate |\n| --- | --- | --- |\n${records.map(record => `| ${domainName(record.domain)} | ${record.baseline} | ${record.version} |`).join('\n')}\n\n` : 'No new release candidates.\n\n';
+  return `# Prepare release candidates\n\n${table}${records.map(record => candidateNotes(record, { preview: true })).join('\n\n')}\n\nMerge to pin these candidates. DEV is not redeployed. Each domain needs fresh STAGE validation and separate PROD approval. Finalization reuses the accepted executable artifact.\n`;
 }
 
 export function assertPromotable(record, latest, stable, digest, sourceSha) {
@@ -95,9 +102,9 @@ async function prepare() {
     const changelog = `domains/${domain}/CHANGELOG.md`;
     const old = existsSync(changelog) ? readFileSync(changelog, 'utf8') : '';
     writeFileSync(changelog, candidateNotes(next) + '\n\n' + old);
-    preview.push(candidateNotes(next));
+    preview.push(next);
   }
-  writeFileSync('release-preview.md', `# Prepare release candidates\n\n${preview.join('\n\n')}\n\nMerge to pin these candidates. DEV is not redeployed. Each domain needs fresh STAGE validation and separate PROD approval. Finalization reuses the accepted executable artifact.\n`);
+  writeFileSync('release-preview.md', preparationNotes(preview));
 }
 
 async function main([command, domain]) {

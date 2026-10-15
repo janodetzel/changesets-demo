@@ -1,23 +1,38 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { nextCandidate, candidateNotes, assertPromotable } from './rc.mjs';
+import { nextCandidate, candidateNotes, preparationNotes, assertPromotable } from './rc.mjs';
 import { entry } from './release-notes.mjs';
 
 const empty = () => ({ domain: 'wingman', baseline: '1.0.0', target: null, version: null, sequence: 0, changes: [], delta: [] });
 const change = (id, bump = 'minor') => ({ id, bump, summary: `Add ${id} to cities.`, plan: `${id}.md` });
 
-test('Hamburg and Berlin grow one minor RC target with cumulative and delta notes', () => {
+test('preparation identifies domains in headings and summarizes their version transitions', () => {
+  const record = nextCandidate(empty(), { version: '1.0.0', changeIds: [] }, [change('Berlin')]);
+  const payment = { ...record, domain: 'payment' };
+  const notes = preparationNotes([record, payment]);
+  assert.match(notes, /\| Wingman \| 1\.0\.0 \| 1\.1\.0-rc\.1 \|/);
+  assert.match(notes, /^## Wingman · 1\.1\.0-rc\.1$/m);
+  assert.match(notes, /^## Payment Provider · 1\.1\.0-rc\.1$/m);
+  assert.match(notes, /^### All changes since production/m);
+  assert.equal(notes.match(/^# /gm).length, 1);
+  assert.doesNotMatch(notes, /Domain: \*\*/);
+  assert.doesNotMatch(notes, /intended stable/i);
+  assert.match(candidateNotes(record), /^# 1\.1\.0-rc\.1 · Wingman/);
+});
+
+test('Hamburg and Berlin grow one minor RC target with one cumulative change list', () => {
   const stable = { version: '1.0.0', changeIds: [] };
   const first = nextCandidate(empty(), stable, [change('Hamburg')]);
   const second = nextCandidate(first, stable, [change('Berlin')]);
   assert.equal(first.version, '1.1.0-rc.1');
   assert.equal(second.version, '1.1.0-rc.2');
   assert.deepEqual(second.changes.map(c => c.id), ['Hamburg', 'Berlin']);
-  const [cumulative, delta] = candidateNotes(second).split('## Changes introduced in this candidate');
+  const cumulative = candidateNotes(second);
   assert.match(cumulative, /Hamburg/);
   assert.match(cumulative, /Berlin/);
-  assert.doesNotMatch(delta, /Hamburg/);
-  assert.match(delta, /Berlin/);
+  assert.doesNotMatch(cumulative, /Changes introduced in this candidate/);
+  assert.equal(cumulative.match(/Add Hamburg/g).length, 1);
+  assert.equal(cumulative.match(/Add Berlin/g).length, 1);
   assert.equal(entry(candidateNotes(second) + '\n' + candidateNotes(first), second.version), candidateNotes(second).trim());
 });
 
