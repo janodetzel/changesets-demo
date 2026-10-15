@@ -1,0 +1,70 @@
+name: Select domains
+on:
+  workflow_call:
+    inputs:
+      flow:
+        type: string
+        required: true
+    outputs:
+      billing:
+        value: ${{ jobs.changes.outputs.billing }}
+      payment:
+        value: ${{ jobs.changes.outputs.payment }}
+      wingman:
+        value: ${{ jobs.changes.outputs.wingman }}
+permissions:
+  contents: read
+jobs:
+  changes:
+    name: Select integration or release candidates
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      billing: ${{ inputs.flow == 'release' && steps.candidate.outputs.billing == 'true' || inputs.flow == 'dev' && steps.candidate.outputs.preparation != 'true' && (steps.filter.outputs.billing == 'true' || steps.filter.outputs.shared == 'true') }}
+      payment: ${{ inputs.flow == 'release' && steps.candidate.outputs.payment == 'true' || inputs.flow == 'dev' && steps.candidate.outputs.preparation != 'true' && (steps.filter.outputs.payment == 'true' || steps.filter.outputs.shared == 'true') }}
+      wingman: ${{ inputs.flow == 'release' && steps.candidate.outputs.wingman == 'true' || inputs.flow == 'dev' && steps.candidate.outputs.preparation != 'true' && (steps.filter.outputs.wingman == 'true' || steps.filter.outputs.shared == 'true') }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: dorny/paths-filter@0e4a8c6effa4802afeda77dc8d303f8176d7dfad # v3
+        id: filter
+        with:
+          # On main pushes, compare the entire push against its previous tip.
+          # Do not compare main against itself or only HEAD's last parent.
+          base: ${{ github.event.before != '0000000000000000000000000000000000000000' && github.event.before || github.ref }}
+          ref: ${{ github.event.before != '0000000000000000000000000000000000000000' && github.sha || github.ref }}
+          filters: .github/domain-paths.yml
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Identify finalized semantic versions
+        id: candidate
+        env:
+          BASE_SHA: ${{ github.event.before }}
+        run: node scripts/release-notes.mjs candidate "$BASE_SHA"
+      - name: Explain domain selection
+        env:
+          PREPARATION: ${{ steps.candidate.outputs.preparation }}
+          FLOW: ${{ inputs.flow }}
+          BILLING: ${{ inputs.flow == 'release' && steps.candidate.outputs.billing == 'true' || inputs.flow == 'dev' && steps.candidate.outputs.preparation != 'true' && (steps.filter.outputs.billing == 'true' || steps.filter.outputs.shared == 'true') }}
+          PAYMENT: ${{ inputs.flow == 'release' && steps.candidate.outputs.payment == 'true' || inputs.flow == 'dev' && steps.candidate.outputs.preparation != 'true' && (steps.filter.outputs.payment == 'true' || steps.filter.outputs.shared == 'true') }}
+          WINGMAN: ${{ inputs.flow == 'release' && steps.candidate.outputs.wingman == 'true' || inputs.flow == 'dev' && steps.candidate.outputs.preparation != 'true' && (steps.filter.outputs.wingman == 'true' || steps.filter.outputs.shared == 'true') }}
+        run: |
+          {
+            printf '## Workflow: %s\n\n' "$FLOW"
+            if [[ "$FLOW" == 'dev' && "$PREPARATION" == 'true' || "$FLOW" == 'release' && "$PREPARATION" != 'true' ]]; then
+              printf 'This push belongs to the other flow. No domains will build or deploy here.\n\n'
+            elif [[ "$PREPARATION" == 'true' ]]; then
+              printf '## Release preparation\n\nBuild versioned candidates for STAGE. **No DEV deployments in this run.**\n\n'
+            else
+              printf '## Integration\n\nDeploy changed domains to DEV only. No STAGE or PROD approvals in this run.\n\n'
+            fi
+            printf '## Domain selection\n\n| Domain | Selected |\n| --- | --- |\n'
+            printf '| Billing | %s |\n| Payment Provider | %s |\n| Wingman | %s |\n' "$BILLING" "$PAYMENT" "$WINGMAN"
+            printf '\nUnselected domains keep their current deployments and pending candidates. See the filter step for matching paths.\n'
+          } >> "$GITHUB_STEP_SUMMARY"

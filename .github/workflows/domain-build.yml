@@ -1,0 +1,81 @@
+name: Build domain artifact
+on:
+  workflow_call:
+    inputs:
+      domain:
+        type: string
+        required: true
+      release_candidate:
+        type: boolean
+        default: false
+    outputs:
+      artifact_id:
+        value: ${{ jobs.build.outputs.artifact_id }}
+      version:
+        value: ${{ jobs.build.outputs.version }}
+permissions:
+  contents: read
+jobs:
+  build:
+    name: Build ${{ inputs.domain }}
+    runs-on: ubuntu-latest
+    outputs:
+      artifact_id: ${{ steps.upload.outputs.artifact-id }}
+      version: ${{ steps.notes.outputs.version }}
+    env:
+      DOMAIN: ${{ inputs.domain }}
+      RELEASE_CANDIDATE: ${{ inputs.release_candidate }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Build and check this domain
+        run: pnpm --filter "@emp/$DOMAIN" build && pnpm --filter "@emp/$DOMAIN" test && pnpm --filter "@emp/$DOMAIN" test:acceptance
+      - name: Prepare readable notes
+        id: notes
+        run: |
+          mkdir -p artifact/dist artifact/test
+          node scripts/release-notes.mjs notes "$DOMAIN"
+      - name: Package the artifact and provenance
+        env:
+          VERSION: ${{ steps.notes.outputs.version }}
+        run: |
+          cp "domains/$DOMAIN/dist/index.mjs" artifact/dist/
+          cp "domains/$DOMAIN/test/acceptance.test.mjs" artifact/test/
+          if [[ -f "domains/$DOMAIN/CHANGELOG.md" ]]; then
+            cp "domains/$DOMAIN/CHANGELOG.md" artifact/CHANGELOG.md
+          else
+            printf 'No semantic release has been prepared yet.\n' > artifact/CHANGELOG.md
+          fi
+          jq -n --arg domain "$DOMAIN" --arg sha "$GITHUB_SHA" --arg version "$VERSION" \
+            --arg run "$GITHUB_RUN_ID" --arg attempt "$GITHUB_RUN_ATTEMPT" \
+            '{domain:$domain,version:$version,sourceSha:$sha,runId:$run,attempt:$attempt}' > artifact/provenance.json
+          (cd artifact && sha256sum dist/index.mjs test/acceptance.test.mjs RELEASE.md CHANGELOG.md provenance.json > SHA256SUMS)
+      - uses: actions/upload-artifact@v4
+        id: upload
+        with:
+          name: ${{ inputs.domain }}-${{ steps.notes.outputs.version }}-${{ github.run_attempt }}
+          path: artifact/
+          if-no-files-found: error
+          retention-days: 90
+      - name: Explain the next step
+        env:
+          ARTIFACT_URL: ${{ steps.upload.outputs.artifact-url }}
+          VERSION: ${{ steps.notes.outputs.version }}
+        run: |
+          {
+            printf '## %s %s\n\nSource: `%s`\n\n' "$DOMAIN" "$VERSION" "$GITHUB_SHA"
+            if [[ "$RELEASE_CANDIDATE" == 'true' ]]; then
+              printf 'Candidate built from the preparation merge. DEV was not redeployed. Review the contents and approve **stage-%s** for acceptance testing.\n\n' "$DOMAIN"
+            else
+              printf 'Integration build. The next job deploys this artifact to DEV only.\n\n'
+            fi
+            printf '[Immutable artifact](%s)\n\n' "$ARTIFACT_URL"
+            cat artifact/RELEASE.md
+          } >> "$GITHUB_STEP_SUMMARY"

@@ -5,133 +5,21 @@ on:
       domain:
         type: string
         required: true
-      release_candidate:
-        type: boolean
-        default: false
 permissions:
   contents: write
   actions: read
 concurrency:
-  # Candidate approvals never block the integration environment.
-  group: ${{ inputs.release_candidate && 'release' || 'integration' }}-${{ inputs.domain }}
+  group: release-${{ inputs.domain }}
   cancel-in-progress: false
 jobs:
   build:
-    name: Build ${{ inputs.release_candidate && 'candidate' || 'integration' }} ${{ inputs.domain }}
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-    outputs:
-      artifact_id: ${{ steps.upload.outputs.artifact-id }}
-      version: ${{ steps.notes.outputs.version }}
-    env:
-      DOMAIN: ${{ inputs.domain }}
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ github.sha }}
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 24
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
-      - name: Build this domain with its shared dependencies
-        run: pnpm --filter "@emp/$DOMAIN" build
-      - name: Check source and bundle before any deployment
-        run: pnpm --filter "@emp/$DOMAIN" test && pnpm --filter "@emp/$DOMAIN" test:acceptance
-      - name: Prepare version and readable candidate notes
-        id: notes
-        env:
-          RELEASE_CANDIDATE: ${{ inputs.release_candidate }}
-        run: |
-          mkdir -p artifact/dist artifact/test
-          node scripts/release-notes.mjs notes "$DOMAIN"
-      - name: Prepare the tested artifact and its provenance
-        env:
-          VERSION: ${{ steps.notes.outputs.version }}
-        run: |
-          cp "domains/$DOMAIN/dist/index.mjs" artifact/dist/
-          cp "domains/$DOMAIN/test/acceptance.test.mjs" artifact/test/
-          if [[ -f "domains/$DOMAIN/CHANGELOG.md" ]]; then
-            cp "domains/$DOMAIN/CHANGELOG.md" artifact/CHANGELOG.md
-          else
-            printf 'No semantic release has been prepared yet.\n' > artifact/CHANGELOG.md
-          fi
-          jq -n --arg domain "$DOMAIN" --arg sha "$GITHUB_SHA" \
-            --arg version "$VERSION" \
-            --arg run "$GITHUB_RUN_ID" --arg attempt "$GITHUB_RUN_ATTEMPT" \
-            '{domain:$domain,version:$version,sourceSha:$sha,runId:$run,attempt:$attempt}' > artifact/provenance.json
-          (cd artifact && sha256sum dist/index.mjs test/acceptance.test.mjs RELEASE.md CHANGELOG.md provenance.json > SHA256SUMS)
-      - name: Store the checked artifact
-        id: upload
-        uses: actions/upload-artifact@v4
-        with:
-          name: ${{ inputs.domain }}-${{ steps.notes.outputs.version }}-${{ github.run_attempt }}
-          path: artifact/
-          if-no-files-found: error
-          retention-days: 90
-      - name: Record the promotion candidate
-        env:
-          ARTIFACT_URL: ${{ steps.upload.outputs.artifact-url }}
-          VERSION: ${{ steps.notes.outputs.version }}
-          RELEASE_CANDIDATE: ${{ inputs.release_candidate }}
-        run: |
-          {
-            printf '## %s %s\n\n' "$DOMAIN" "$VERSION"
-            printf 'Source: `%s`\n\n' "$GITHUB_SHA"
-            if [[ "$RELEASE_CANDIDATE" == 'true' ]]; then
-              printf 'Built from the preparation merge commit. **DEV was not redeployed.** Review these contents and approve **stage-%s** to begin release acceptance testing. Local bundle checks do not constitute DEV deployment evidence.\n\n' "$DOMAIN"
-            else
-              printf 'Integration build only. The next job deploys this artifact to DEV. Review the **Prepare domain releases** PR to finalize versions and changelogs before promotion.\n\n'
-            fi
-            printf '[Download immutable artifact](%s)\n\n' "$ARTIFACT_URL"
-            cat artifact/RELEASE.md
-          } >> "$GITHUB_STEP_SUMMARY"
-      - name: Explain an unsuccessful candidate
-        if: failure()
-        run: |
-          printf '## %s is not ready\n\nBuild or local checks failed. This run cannot deploy the domain. Other domains can still proceed.\n' "$DOMAIN" >> "$GITHUB_STEP_SUMMARY"
-  dev:
-    name: DEV ${{ inputs.domain }}
-    needs: build
-    if: ${{ !inputs.release_candidate }}
-    runs-on: ubuntu-latest
-    environment: dev-${{ inputs.domain }}
-    permissions:
-      contents: read
-      actions: read
-    steps:
-      - uses: actions/download-artifact@v4
-        with:
-          artifact-ids: ${{ needs.build.outputs.artifact_id }}
-          merge-multiple: true
-          path: artifact
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 24
-      - name: Deploy to DEV (simulated) and run acceptance tests
-        working-directory: artifact
-        env:
-          DOMAIN: ${{ inputs.domain }}
-        run: |
-          sha256sum --check SHA256SUMS
-          jq -e --arg domain "$DOMAIN" --arg sha "$GITHUB_SHA" --arg run "$GITHUB_RUN_ID" \
-            '.domain == $domain and .sourceSha == $sha and .runId == $run' provenance.json
-          node --test test/acceptance.test.mjs
-      - name: Record the integration deployment
-        env:
-          DOMAIN: ${{ inputs.domain }}
-        run: |
-          {
-            printf '## %s deployed to DEV\n\nSource: `%s`\n\n' "$DOMAIN" "$GITHUB_SHA"
-            printf 'Manual integration testing can continue here. This run does not request STAGE or PROD approval.\n\n'
-            cat artifact/RELEASE.md
-          } >> "$GITHUB_STEP_SUMMARY"
+    uses: ./.github/workflows/domain-build.yml
+    with:
+      domain: ${{ inputs.domain }}
+      release_candidate: true
   stage:
     name: STAGE ${{ inputs.domain }} ${{ needs.build.outputs.version }}
     needs: build
-    if: inputs.release_candidate
     runs-on: ubuntu-latest
     permissions:
       contents: read

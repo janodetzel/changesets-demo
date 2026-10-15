@@ -27,19 +27,34 @@ test('preparation cannot hide source or build-dependency changes from DEV', () =
 });
 
 test('integration and promotion have disjoint environments and independent locks', () => {
-  const workflow = parse(readFileSync('.github/workflows/domain-release.yml', 'utf8'));
-  const { build, dev, stage, production } = workflow.jobs;
+  const load = name => parse(readFileSync(`.github/workflows/${name}.yml`, 'utf8'));
+  const workflow = load('domain-release');
+  const integration = load('domain-dev');
+  const { stage, production } = workflow.jobs;
+  const { dev } = integration.jobs;
+  const build = load('domain-build').jobs.build;
   assert.equal(build.environment, undefined, 'candidate build must not create a DEV deployment');
-  assert.equal(dev.if, '${{ !inputs.release_candidate }}');
-  assert.equal(stage.if, 'inputs.release_candidate');
+  assert.deepEqual(Object.keys(integration.jobs), ['build', 'dev']);
+  assert.deepEqual(Object.keys(workflow.jobs), ['build', 'stage', 'production']);
+  assert.equal(integration.jobs.build.with.release_candidate, false);
+  assert.equal(workflow.jobs.build.with.release_candidate, true);
   assert.equal(dev.needs, 'build');
   assert.equal(stage.needs, 'build');
   assert.deepEqual(production.needs, ['build', 'stage']);
-  assert.equal(workflow.concurrency.group, "${{ inputs.release_candidate && 'release' || 'integration' }}-${{ inputs.domain }}");
+  assert.equal(workflow.concurrency.group, 'release-${{ inputs.domain }}');
+  assert.equal(integration.concurrency.group, 'integration-${{ inputs.domain }}');
   assert.equal(workflow.concurrency['cancel-in-progress'], false);
   for (const job of [dev, stage, production]) {
     assert.equal(job.steps.find(step => step.uses === 'actions/download-artifact@v4').with['artifact-ids'], '${{ needs.build.outputs.artifact_id }}');
     assert.ok(!job.steps.some(step => step.uses === 'actions/checkout@v4'), 'deployments must reuse the bundle');
   }
   assert.equal(build.steps[0].with.ref, '${{ github.sha }}', 'queued builds must pin the triggering commit');
+  for (const [name, flow, domainWorkflow] of [['deploy-dev', 'dev', 'domain-dev'], ['release', 'release', 'domain-release']]) {
+    const entrypoint = load(name);
+    assert.equal(entrypoint.jobs.changes.with.flow, flow);
+    for (const domain of ['billing', 'payment', 'wingman']) {
+      assert.equal(entrypoint.jobs[domain].uses, `./.github/workflows/${domainWorkflow}.yml`);
+      assert.equal(entrypoint.jobs[domain].if, `needs.changes.outputs.${domain} == 'true'`);
+    }
+  }
 });

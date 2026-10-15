@@ -1,0 +1,34 @@
+name: Deploy DEV
+on:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+  actions: read
+jobs:
+  changes:
+    name: Select integration domains
+    uses: ./.github/workflows/select-domains.yml
+    with:
+      flow: dev
+  billing:
+    name: Billing
+    needs: changes
+    if: needs.changes.outputs.billing == 'true'
+    uses: ./.github/workflows/domain-dev.yml
+    with:
+      domain: billing
+  payment:
+    name: Payment Provider
+    needs: changes
+    if: needs.changes.outputs.payment == 'true'
+    uses: ./.github/workflows/domain-dev.yml
+    with:
+      domain: payment
+  wingman:
+    name: Wingman
+    needs: changes
+    if: needs.changes.outputs.wingman == 'true'
+    uses: ./.github/workflows/domain-dev.yml
+    with:
+      domain: wingman

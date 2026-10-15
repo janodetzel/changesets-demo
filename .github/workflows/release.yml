@@ -1,4 +1,4 @@
-name: Domain releases
+name: Release domains
 on:
   push:
     branches: [main]
@@ -7,57 +7,10 @@ permissions:
   actions: read
 jobs:
   changes:
-    name: Select integration or release candidates
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-    outputs:
-      billing: ${{ steps.candidate.outputs.preparation == 'true' && steps.candidate.outputs.billing == 'true' || steps.candidate.outputs.preparation != 'true' && (steps.filter.outputs.billing == 'true' || steps.filter.outputs.shared == 'true') }}
-      payment: ${{ steps.candidate.outputs.preparation == 'true' && steps.candidate.outputs.payment == 'true' || steps.candidate.outputs.preparation != 'true' && (steps.filter.outputs.payment == 'true' || steps.filter.outputs.shared == 'true') }}
-      wingman: ${{ steps.candidate.outputs.preparation == 'true' && steps.candidate.outputs.wingman == 'true' || steps.candidate.outputs.preparation != 'true' && (steps.filter.outputs.wingman == 'true' || steps.filter.outputs.shared == 'true') }}
-      release_billing: ${{ steps.candidate.outputs.billing }}
-      release_payment: ${{ steps.candidate.outputs.payment }}
-      release_wingman: ${{ steps.candidate.outputs.wingman }}
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-      - uses: dorny/paths-filter@0e4a8c6effa4802afeda77dc8d303f8176d7dfad # v3
-        id: filter
-        with:
-          # On main pushes, compare the entire push against its previous tip.
-          # Do not compare main against itself or only HEAD's last parent.
-          base: ${{ github.event.before != '0000000000000000000000000000000000000000' && github.event.before || github.ref }}
-          ref: ${{ github.event.before != '0000000000000000000000000000000000000000' && github.sha || github.ref }}
-          filters: .github/domain-paths.yml
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 24
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
-      - name: Identify finalized semantic versions
-        id: candidate
-        env:
-          BASE_SHA: ${{ github.event.before }}
-        run: node scripts/release-notes.mjs candidate "$BASE_SHA"
-      - name: Explain domain selection
-        env:
-          PREPARATION: ${{ steps.candidate.outputs.preparation }}
-          BILLING: ${{ steps.candidate.outputs.preparation == 'true' && steps.candidate.outputs.billing == 'true' || steps.candidate.outputs.preparation != 'true' && (steps.filter.outputs.billing == 'true' || steps.filter.outputs.shared == 'true') }}
-          PAYMENT: ${{ steps.candidate.outputs.preparation == 'true' && steps.candidate.outputs.payment == 'true' || steps.candidate.outputs.preparation != 'true' && (steps.filter.outputs.payment == 'true' || steps.filter.outputs.shared == 'true') }}
-          WINGMAN: ${{ steps.candidate.outputs.preparation == 'true' && steps.candidate.outputs.wingman == 'true' || steps.candidate.outputs.preparation != 'true' && (steps.filter.outputs.wingman == 'true' || steps.filter.outputs.shared == 'true') }}
-        run: |
-          {
-            if [[ "$PREPARATION" == 'true' ]]; then
-              printf '## Release preparation\n\nBuild versioned candidates for STAGE. **No DEV deployments in this run.**\n\n'
-            else
-              printf '## Integration\n\nDeploy changed domains to DEV only. No STAGE or PROD approvals in this run.\n\n'
-            fi
-            printf '## Domain selection\n\n| Domain | Selected |\n| --- | --- |\n'
-            printf '| Billing | %s |\n| Payment Provider | %s |\n| Wingman | %s |\n' "$BILLING" "$PAYMENT" "$WINGMAN"
-            printf '\nUnselected domains keep their current deployments and pending candidates. See the filter step for matching paths.\n'
-          } >> "$GITHUB_STEP_SUMMARY"
+    name: Select versioned domains
+    uses: ./.github/workflows/select-domains.yml
+    with:
+      flow: release
   billing:
     name: Billing
     needs: changes
@@ -65,7 +18,6 @@ jobs:
     uses: ./.github/workflows/domain-release.yml
     with:
       domain: billing
-      release_candidate: ${{ needs.changes.outputs.release_billing == 'true' }}
   payment:
     name: Payment Provider
     needs: changes
@@ -73,7 +25,6 @@ jobs:
     uses: ./.github/workflows/domain-release.yml
     with:
       domain: payment
-      release_candidate: ${{ needs.changes.outputs.release_payment == 'true' }}
   wingman:
     name: Wingman
     needs: changes
@@ -81,4 +32,3 @@ jobs:
     uses: ./.github/workflows/domain-release.yml
     with:
       domain: wingman
-      release_candidate: ${{ needs.changes.outputs.release_wingman == 'true' }}
