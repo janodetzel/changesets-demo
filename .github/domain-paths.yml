@@ -18,6 +18,8 @@ shared:
   - 'nx.json'
   - 'scripts/release-notes.mjs'
   - 'scripts/rc.mjs'
+  - 'scripts/commit-changes.mjs'
+  - 'release-input.json'
   - '.github/domain-paths.yml'
   - '.github/workflows/release.yml'
   - '.github/workflows/domain-release.yml'

@@ -11,6 +11,6 @@ The repository is the demo. Nx Release updates domain manifests; `scripts/rc.mjs
 - `deploy-dev.yml` and `release.yml` are separate entry points. Share building and selection through reusable workflows; keep STAGE and PROD in the same release run.
 - Deployments execute artifact tests and record GitHub Environment deployments. They simulate infrastructure deployment.
 - No dashboard, custom state database, release engine, or feature flags.
-- Add a new `.nx/version-plans/*.md` file for release-relevant changes using `pnpm release:plan`. Include shared-library consumers. Nx owns versions and `CHANGELOG.md`; do not edit them manually after initial setup.
+- Use Conventional Commit PR titles and the template's Release note and Compatibility and migrations sections. Squash merges must preserve title and description. No version-plan files. The commit bump applies to every affected domain from the shared path map. Nx writes versions; the RC adapter writes cumulative changelogs.
 - RC records in `releases/*.json` accumulate unshipped changes against stable GitHub Release metadata. Never rewrite an existing candidate artifact or finalize a superseded RC. Stable records reference the accepted executable digest without rebuilding it.
 - Never approve a production environment, push, publish, or dispatch a deployment unless requested.

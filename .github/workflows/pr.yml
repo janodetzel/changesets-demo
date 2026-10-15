@@ -2,6 +2,7 @@ name: PR checks
 on:
   pull_request:
     branches: [main]
+    types: [opened, synchronize, reopened, edited, ready_for_review]
 permissions:
   contents: read
 jobs:
@@ -19,7 +20,7 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm build && pnpm test
   changeset:
-    # Retain the existing required-check name for version-plan review.
+    # Retain the existing required-check name for Conventional Commit validation.
     runs-on: ubuntu-latest
     env:
       NX_DAEMON: 'false'
@@ -39,6 +40,3 @@ jobs:
           HEAD_REF: ${{ github.head_ref }}
         run: |
           node scripts/release-notes.mjs check "$BASE_SHA"
-          if [[ "$HEAD_REF" != 'release/versions' ]]; then
-            pnpm release:check --base="$BASE_SHA" --head=HEAD
-          fi

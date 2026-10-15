@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { entry, plans, validatePreparation } from './release-notes.mjs';
+import { entry, validatePreparation, rejectVersionPlans } from './release-notes.mjs';
 import { readFileSync } from 'node:fs';
 import { parse } from 'yaml';
 
@@ -12,14 +12,17 @@ test('approval notes contain exactly the requested release, not previous release
   assert.throws(() => entry(changelog, '1.6.0'), /No generated changelog/);
 });
 
-test('repository version plans parse and include release descriptions', () => {
-  for (const plan of plans()) assert.ok(plan.summary.length > 0, plan.name);
+test('obsolete version plans can be deleted but not added or modified', () => {
+  // Deleted files are excluded by the caller's git --diff-filter=AM query.
+  assert.doesNotThrow(() => rejectVersionPlans(['README.md', 'scripts/commit-changes.mjs']));
+  assert.throws(() => rejectVersionPlans(['.nx/version-plans/new-feature.md']), /Version plans were removed/);
+  assert.throws(() => rejectVersionPlans(['.nx/version-plans/README.md']), /Version plans were removed/);
 });
 
 test('preparation cannot hide source or build-dependency changes from DEV', () => {
   const before = { name: '@emp/billing', version: '1.0.0', dependencies: { money: '1.0.0' } };
   const after = { ...before, version: '1.1.0' };
-  const changed = ['domains/billing/package.json', 'domains/billing/CHANGELOG.md', '.nx/version-plans/invoice.md'];
+  const changed = ['domains/billing/package.json', 'domains/billing/CHANGELOG.md', 'releases/billing.json'];
   assert.doesNotThrow(() => validatePreparation(changed, () => before, () => after));
   assert.throws(() => validatePreparation([...changed, 'domains/billing/src/index.mjs'], () => before, () => after), /only versions/);
   assert.throws(() => validatePreparation(changed, () => before, () => ({ ...after, dependencies: { money: '2.0.0' } })), /dependencies/);
