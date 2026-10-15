@@ -1,3 +1,20 @@
+# 1.3.0-rc.1
+
+Domain: **wingman**
+
+Stable production baseline: **1.2.0**
+
+Intended stable release: **1.3.0**
+
+## All changes since production 1.2.0
+
+- **minor**: Accidentially remove all cities
+
+## Changes introduced in this candidate
+
+- **minor**: Accidentially remove all cities
+
+
 ## 1.2.0 (2026-10-15)
 
 ### 🚀 Features
