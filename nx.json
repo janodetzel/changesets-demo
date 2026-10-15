@@ -6,14 +6,16 @@
     "projectsRelationship": "independent",
     "versionPlans": false,
     "version": {
-      "currentVersionResolver": "disk",
-      "updateDependents": "never",
+      "conventionalCommits": true,
+      "updateDependents": "auto",
       "versionActionsOptions": { "skipLockFileUpdate": true }
     },
+    "releaseTag": { "pattern": "{projectName}@v{version}", "checkAllBranchesWhen": false },
     "changelog": {
       "projectChangelogs": {
         "createRelease": false,
-        "renderOptions": { "authors": false }
+        "renderOptions": { "authors": false, "commitReferences": true },
+        "repositoryUrl": "https://github.com/janodetzel/changesets-demo"
       }
     },
     "git": { "commit": false, "tag": false }

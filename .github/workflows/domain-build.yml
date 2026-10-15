@@ -14,7 +14,8 @@ on:
       version:
         value: ${{ jobs.build.outputs.version }}
 permissions:
-  contents: read
+  contents: write
+  deployments: read
 jobs:
   build:
     name: Build ${{ inputs.domain }}
@@ -29,7 +30,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: ${{ github.sha }}
-          # Integration notes scan immutable squash commits back to historyStart.
+          # Nx cumulative notes need the source of the production deployment.
           fetch-depth: 0
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
@@ -37,13 +38,36 @@ jobs:
           node-version: 24
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - name: Register a prepared version tag
+        if: inputs.release_candidate
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VERSION=$(jq -r .version "domains/$DOMAIN/package.json")
+          [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          TAG="$DOMAIN@v$VERSION"
+          if git rev-parse --verify "refs/tags/$TAG" > /dev/null 2>&1; then
+            test "$(git rev-list -n 1 "$TAG")" = "$GITHUB_SHA"
+          else
+            gh api --method POST "repos/$GITHUB_REPOSITORY/git/refs" -f ref="refs/tags/$TAG" -f sha="$GITHUB_SHA"
+            git fetch origin "refs/tags/$TAG:refs/tags/$TAG"
+          fi
       - name: Build and check this domain
         run: pnpm --filter "@emp/$DOMAIN" build && pnpm --filter "@emp/$DOMAIN" test && pnpm --filter "@emp/$DOMAIN" test:acceptance
       - name: Prepare readable notes
         id: notes
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           mkdir -p artifact/dist artifact/test
-          node scripts/release-notes.mjs notes "$DOMAIN"
+          VERSION=$(jq -r .version "domains/$DOMAIN/package.json")
+          if [[ "$RELEASE_CANDIDATE" == true ]]; then
+            node scripts/release-summary.mjs "$DOMAIN"
+          else
+            VERSION="${VERSION%%-*}-dev.$GITHUB_RUN_ID"
+            printf '# %s integration build\n\nSource: `%s`\n\nThis artifact deploys to DEV only.\n' "$DOMAIN" "$GITHUB_SHA" > artifact/RELEASE.md
+          fi
+          printf 'version=%s\n' "$VERSION" >> "$GITHUB_OUTPUT"
       - name: Package the artifact and provenance
         env:
           VERSION: ${{ steps.notes.outputs.version }}
@@ -59,9 +83,7 @@ jobs:
             --arg run "$GITHUB_RUN_ID" --arg attempt "$GITHUB_RUN_ATTEMPT" \
             '{domain:$domain,version:$version,sourceSha:$sha,runId:$run,attempt:$attempt}' > artifact/provenance.json
           (cd artifact && sha256sum dist/index.mjs test/acceptance.test.mjs RELEASE.md CHANGELOG.md provenance.json > SHA256SUMS)
-          if [[ -f artifact/candidate.json ]]; then
-            (cd artifact && sha256sum candidate.json >> SHA256SUMS)
-          fi
+          if [[ -f artifact/baseline.json ]]; then (cd artifact && sha256sum baseline.json >> SHA256SUMS); fi
       - uses: actions/upload-artifact@v4
         id: upload
         with:

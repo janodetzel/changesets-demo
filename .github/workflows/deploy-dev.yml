@@ -3,8 +3,9 @@ on:
   push:
     branches: [main]
 permissions:
-  contents: read
+  contents: write
   actions: read
+  deployments: read
 jobs:
   changes:
     name: Select integration domains

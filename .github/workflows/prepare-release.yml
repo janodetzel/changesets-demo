@@ -6,6 +6,7 @@ on:
 permissions:
   contents: write
   pull-requests: write
+  deployments: read
 concurrency:
   group: prepare-semantic-releases
   cancel-in-progress: false
@@ -27,7 +28,16 @@ jobs:
           node-version: 24
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - name: Prepare growing RC versions and cumulative notes
+      - name: Require registered source tags before preparing another version
+        run: |
+          for domain in billing payment wingman; do
+            VERSION=$(jq -r .version "domains/$domain/package.json")
+            git rev-parse --verify "refs/tags/$domain@v$VERSION" > /dev/null || {
+              printf 'Version tag %s@v%s is not registered yet. Retry after its release build starts.\n' "$domain" "$VERSION"
+              exit 1
+            }
+          done
+      - name: Prepare versions and changelogs with native Nx Release
         run: pnpm release:prepare
       - name: Validate the prepared candidate
         run: pnpm build && pnpm test
@@ -37,11 +47,10 @@ jobs:
           token: ${{ secrets.RELEASE_PR_TOKEN || github.token }}
           branch: release/versions
           base: main
-          title: Prepare domain releases
-          commit-message: Prepare domain versions and changelogs
+          title: 'chore(release): prepare domain releases'
+          commit-message: 'chore(release): prepare domain versions and changelogs'
           body-path: release-preview.md
           add-paths: |
             domains/*/package.json
             domains/*/CHANGELOG.md
-            releases/*.json
           delete-branch: true
