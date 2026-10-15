@@ -1,4 +1,0 @@
-{
-  "historyStart": "717ece2b35061d9f4a653ff3a16aad98d6afd332",
-  "description": "Exclusive migration boundary. Earlier plan-based changes remain in existing RC and stable records. Never advance this manually to omit changes."
-}

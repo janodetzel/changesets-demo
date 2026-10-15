@@ -16,55 +16,59 @@ permissions:
   contents: read
 jobs:
   changes:
-    name: Select integration or release candidates
+    name: Select affected projects or prepared versions
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
+    env:
+      NX_DAEMON: 'false'
     outputs:
-      billing: ${{ inputs.flow == 'release' && steps.candidate.outputs.billing == 'true' || inputs.flow == 'dev' && steps.candidate.outputs.preparation != 'true' && (steps.filter.outputs.billing == 'true' || steps.filter.outputs.shared == 'true') }}
-      payment: ${{ inputs.flow == 'release' && steps.candidate.outputs.payment == 'true' || inputs.flow == 'dev' && steps.candidate.outputs.preparation != 'true' && (steps.filter.outputs.payment == 'true' || steps.filter.outputs.shared == 'true') }}
-      wingman: ${{ inputs.flow == 'release' && steps.candidate.outputs.wingman == 'true' || inputs.flow == 'dev' && steps.candidate.outputs.preparation != 'true' && (steps.filter.outputs.wingman == 'true' || steps.filter.outputs.shared == 'true') }}
+      billing: ${{ steps.select.outputs.billing }}
+      payment: ${{ steps.select.outputs.payment }}
+      wingman: ${{ steps.select.outputs.wingman }}
     steps:
       - uses: actions/checkout@v4
         with:
+          ref: ${{ github.sha }}
           fetch-depth: 0
-      - uses: dorny/paths-filter@0e4a8c6effa4802afeda77dc8d303f8176d7dfad # v3
-        id: filter
-        with:
-          # On main pushes, compare the entire push against its previous tip.
-          # Do not compare main against itself or only HEAD's last parent.
-          base: ${{ github.event.before != '0000000000000000000000000000000000000000' && github.event.before || github.ref }}
-          ref: ${{ github.event.before != '0000000000000000000000000000000000000000' && github.sha || github.ref }}
-          filters: .github/domain-paths.yml
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 24
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - name: Identify finalized semantic versions
-        id: candidate
+      - name: Select using Nx affected and version changes
+        id: select
         env:
           BASE_SHA: ${{ github.event.before }}
-        run: node scripts/release-notes.mjs candidate "$BASE_SHA"
-      - name: Explain domain selection
-        env:
-          PREPARATION: ${{ steps.candidate.outputs.preparation }}
           FLOW: ${{ inputs.flow }}
-          BILLING: ${{ inputs.flow == 'release' && steps.candidate.outputs.billing == 'true' || inputs.flow == 'dev' && steps.candidate.outputs.preparation != 'true' && (steps.filter.outputs.billing == 'true' || steps.filter.outputs.shared == 'true') }}
-          PAYMENT: ${{ inputs.flow == 'release' && steps.candidate.outputs.payment == 'true' || inputs.flow == 'dev' && steps.candidate.outputs.preparation != 'true' && (steps.filter.outputs.payment == 'true' || steps.filter.outputs.shared == 'true') }}
-          WINGMAN: ${{ inputs.flow == 'release' && steps.candidate.outputs.wingman == 'true' || inputs.flow == 'dev' && steps.candidate.outputs.preparation != 'true' && (steps.filter.outputs.wingman == 'true' || steps.filter.outputs.shared == 'true') }}
         run: |
-          {
-            printf '## Workflow: %s\n\n' "$FLOW"
-            if [[ "$FLOW" == 'dev' && "$PREPARATION" == 'true' || "$FLOW" == 'release' && "$PREPARATION" != 'true' ]]; then
-              printf 'This push belongs to the other flow. No domains will build or deploy here.\n\n'
-            elif [[ "$PREPARATION" == 'true' ]]; then
-              printf '## Release preparation\n\nBuild versioned candidates for STAGE. **No DEV deployments in this run.**\n\n'
-            else
-              printf '## Integration\n\nDeploy changed domains to DEV only. No STAGE or PROD approvals in this run.\n\n'
-            fi
-            printf '## Domain selection\n\n| Domain | Selected |\n| --- | --- |\n'
-            printf '| Billing | %s |\n| Payment Provider | %s |\n| Wingman | %s |\n' "$BILLING" "$PAYMENT" "$WINGMAN"
-            printf '\nUnselected domains keep their current deployments and pending candidates. See the filter step for matching paths.\n'
-          } >> "$GITHUB_STEP_SUMMARY"
+          if [[ "$BASE_SHA" =~ ^0+$ ]]; then
+            printf '["billing","payment","wingman"]' > "$RUNNER_TEMP/affected.json"
+            BASE_SHA=$(git rev-list --max-parents=0 HEAD)
+          else
+            pnpm exec nx show projects --affected --base="$BASE_SHA" --head="$GITHUB_SHA" --json > "$RUNNER_TEMP/affected.json"
+          fi
+          preparation=false
+          for domain in billing payment wingman; do
+            before=$(git show "$BASE_SHA:domains/$domain/package.json" | jq -r .version)
+            after=$(jq -r .version "domains/$domain/package.json")
+            if [[ "$before" != "$after" ]]; then preparation=true; fi
+          done
+          if [[ "$preparation" == true ]]; then
+            # A metadata-only preparation must not bypass application integration.
+            while IFS= read -r file; do
+              [[ "$file" =~ ^domains/(billing|payment|wingman)/(package.json|CHANGELOG.md)$ ]] || { printf 'Unexpected preparation file: %s\n' "$file"; exit 1; }
+              if [[ "$file" == */package.json ]]; then
+                diff <(git show "$BASE_SHA:$file" | jq -S 'del(.version)') <(jq -S 'del(.version)' "$file")
+              fi
+            done < <(git diff --name-only "$BASE_SHA" "$GITHUB_SHA")
+          fi
+          printf '## %s domain selection\n\n| Domain | Selected |\n| --- | --- |\n' "$FLOW" >> "$GITHUB_STEP_SUMMARY"
+          for domain in billing payment wingman; do
+            selected=false
+            before=$(git show "$BASE_SHA:domains/$domain/package.json" | jq -r .version)
+            after=$(jq -r .version "domains/$domain/package.json")
+            if [[ "$FLOW" == release && "$before" != "$after" ]]; then selected=true; fi
+            if [[ "$FLOW" == dev && "$preparation" == false ]] && jq -e --arg domain "$domain" 'index($domain) != null' "$RUNNER_TEMP/affected.json" > /dev/null; then selected=true; fi
+            printf '%s=%s\n' "$domain" "$selected" >> "$GITHUB_OUTPUT"
+            printf '| %s | %s |\n' "$domain" "$selected" >> "$GITHUB_STEP_SUMMARY"
+          done
