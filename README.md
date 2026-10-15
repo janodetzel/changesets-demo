@@ -53,7 +53,7 @@ With production on Wingman 1.0.0:
 2. Merge the preparation PR; the candidate builds from that exact commit without a DEV deployment.
 3. Approve STAGE, discover an issue, and reject or leave PROD unapproved.
 4. Merge `feat(wingman): add Berlin ...` or a compatible fix. The next preparation proposes `1.1.0-rc.2`.
-5. The notes show **Hamburg + Berlin since production**, and **Berlin since the preceding candidate**.
+5. The notes show one cumulative list: **Hamburg + Berlin since production**.
 6. Fresh STAGE validation and PROD approval finalize stable 1.1.0, pointing to the accepted executable artifact unchanged.
 
 Compatible additions and fixes join the active target. A breaking stable contract escalates the major target. After stable 1.1.0, a patch targets 1.1.1 and a minor addition targets 1.2.0. Candidate sequence numbers keep increasing per domain across targets to avoid name reuse.
