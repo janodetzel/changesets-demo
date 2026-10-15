@@ -1,6 +1,6 @@
 # EMP release-flow demo
 
-The repository is the demo. Use Nx Release for versions and changelogs, and GitHub Actions, artifacts, Environments, and Releases for delivery. Keep custom glue limited to release-note presentation and CI checks.
+The repository is the demo. Nx Release updates domain manifests; `scripts/rc.mjs` applies the growing-RC policy and cumulative notes. GitHub handles delivery and approvals.
 
 - Node 24 in CI, pnpm version from `package.json`.
 - `pnpm install --frozen-lockfile && pnpm build && pnpm test && pnpm test:acceptance`.
@@ -12,4 +12,5 @@ The repository is the demo. Use Nx Release for versions and changelogs, and GitH
 - Deployments execute artifact tests and record GitHub Environment deployments. They simulate infrastructure deployment.
 - No dashboard, custom state database, release engine, or feature flags.
 - Add a new `.nx/version-plans/*.md` file for release-relevant changes using `pnpm release:plan`. Include shared-library consumers. Nx owns versions and `CHANGELOG.md`; do not edit them manually after initial setup.
+- RC records in `releases/*.json` accumulate unshipped changes against stable GitHub Release metadata. Never rewrite an existing candidate artifact or finalize a superseded RC. Stable records reference the accepted executable digest without rebuilding it.
 - Never approve a production environment, push, publish, or dispatch a deployment unless requested.

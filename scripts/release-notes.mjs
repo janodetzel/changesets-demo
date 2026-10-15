@@ -16,7 +16,7 @@ const versionAt = (domain, ref) => {
 
 export function entry(changelog, version) {
   const sections = changelog.split(/(?=^#{1,2} \d+\.\d+\.\d+)/m);
-  const section = sections.find(value => new RegExp(`^#{1,2} ${version.replaceAll('.', '\\.')}[ (\\n]`).test(value));
+  const section = sections.find(value => new RegExp(`^#{1,2} ${version.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}[ (\\n]`).test(value));
   if (!section) throw new Error(`No generated changelog entry for ${version}`);
   return section.trim();
 }
@@ -36,7 +36,7 @@ export function plans() {
 
 export function validatePreparation(changed, beforeManifest, afterManifest) {
   for (const file of changed.filter(Boolean)) {
-    if (!/^domains\/(billing|payment|wingman)\/(package\.json|CHANGELOG\.md)$/.test(file) && !/^\.nx\/version-plans\/[^/]+\.md$/.test(file)) {
+    if (!/^domains\/(billing|payment|wingman)\/(package\.json|CHANGELOG\.md)$/.test(file) && !/^releases\/(billing|payment|wingman)\.json$/.test(file) && !/^\.nx\/version-plans\/[^/]+\.md$/.test(file)) {
       throw new Error(`Preparation must contain only versions, changelogs, and consumed plans: ${file}`);
     }
     if (file.endsWith('/package.json')) {
@@ -75,6 +75,7 @@ function main([command, argument]) {
       if (required && !newPlans.some(plan => domain in plan.bumps)) throw new Error(`Add a new version plan for ${domain}; existing pending plans do not describe this PR`);
       if (JSON.parse(read(manifest(domain))).version !== versionAt(domain, argument)) throw new Error('Only the release preparation PR may change domain versions');
       if (changed.includes(`domains/${domain}/CHANGELOG.md`)) throw new Error('Nx generates changelogs in the release preparation PR');
+      if (changed.includes(`releases/${domain}.json`)) throw new Error('Only the preparation PR may change RC records');
     }
     console.log('Changed domains and shared-library consumers have new release plans');
     return;
@@ -102,6 +103,10 @@ function main([command, argument]) {
       const changed = version !== versionAt(domain, argument);
       if (changed && pending.some(plan => domain in plan.bumps)) throw new Error(`${domain}: version changed but pending plans remain. Refresh the release PR against current main.`);
       if (changed) entry(read(`domains/${domain}/CHANGELOG.md`), version);
+      if (changed) {
+        const record = JSON.parse(read(`releases/${domain}.json`));
+        if (record.domain !== domain || record.version !== version || !/^\d+\.\d+\.\d+-rc\.\d+$/.test(version)) throw new Error('Version must match its immutable RC record');
+      }
       if (process.env.GITHUB_OUTPUT) appendFileSync(process.env.GITHUB_OUTPUT, `${domain}=${changed}\n`);
       console.log(`${domain}: ${changed ? `release ${version}` : 'integration only'}`);
     }
@@ -115,8 +120,9 @@ function main([command, argument]) {
     const notes = integration
       ? `# ${argument}: integration build\n\nLast reserved version: ${version}. This source is not a finalized semantic release.\n\n${pending.map(plan => `## ${plan.bumps[argument]} · ${plan.name}\n\n${plan.summary}`).join('\n\n') || 'No pending release notes for this domain.'}`
       : entry(read(`domains/${argument}/CHANGELOG.md`), version);
-    const display = integration ? `${version}-dev.${process.env.GITHUB_RUN_ID ?? 'local'}` : version;
+    const display = integration ? `${version.split('-')[0]}-dev.${process.env.GITHUB_RUN_ID ?? 'local'}` : version;
     writeFileSync('artifact/RELEASE.md', `${notes}\n`);
+    if (!integration) writeFileSync('artifact/candidate.json', read(`releases/${argument}.json`));
     if (process.env.GITHUB_OUTPUT) appendFileSync(process.env.GITHUB_OUTPUT, `version=${display}\n`);
     return;
   }

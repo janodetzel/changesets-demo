@@ -46,8 +46,9 @@ test('integration and promotion have disjoint environments and independent locks
   assert.equal(workflow.concurrency['cancel-in-progress'], false);
   for (const job of [dev, stage, production]) {
     assert.equal(job.steps.find(step => step.uses === 'actions/download-artifact@v4').with['artifact-ids'], '${{ needs.build.outputs.artifact_id }}');
-    assert.ok(!job.steps.some(step => step.uses === 'actions/checkout@v4'), 'deployments must reuse the bundle');
   }
+  for (const job of [dev, stage]) assert.ok(!job.steps.some(step => step.uses === 'actions/checkout@v4'));
+  assert.ok(!production.steps.some(step => /pnpm.*build/.test(step.run || '')), 'production metadata finalization must not rebuild the application');
   assert.equal(build.steps[0].with.ref, '${{ github.sha }}', 'queued builds must pin the triggering commit');
   for (const [name, flow, domainWorkflow] of [['deploy-dev', 'dev', 'domain-dev'], ['release', 'release', 'domain-release']]) {
     const entrypoint = load(name);

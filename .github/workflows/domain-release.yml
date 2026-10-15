@@ -7,7 +7,7 @@ on:
         required: true
 permissions:
   contents: write
-  actions: read
+  actions: write
 concurrency:
   group: release-${{ inputs.domain }}
   cancel-in-progress: false
@@ -22,7 +22,7 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     permissions:
-      contents: read
+      contents: write
       actions: read
     environment: stage-${{ inputs.domain }}
     steps:
@@ -56,6 +56,18 @@ jobs:
             cat artifact/SHA256SUMS
             printf '```\n'
           } >> "$GITHUB_STEP_SUMMARY"
+      - name: Publish candidate history (not a production release)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DOMAIN: ${{ inputs.domain }}
+        run: |
+          VERSION=$(jq -r .version artifact/provenance.json)
+          TAG="$DOMAIN@v$VERSION"
+          if ! gh release view "$TAG" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+            gh release create "$TAG" artifact/candidate.json artifact/provenance.json artifact/SHA256SUMS \
+              --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --prerelease --latest=false \
+              --title "$DOMAIN $VERSION (STAGE candidate)" --notes-file artifact/RELEASE.md
+          fi
   production:
     name: PROD ${{ inputs.domain }} ${{ needs.build.outputs.version }}
     needs: [build, stage]
@@ -63,8 +75,17 @@ jobs:
     environment: prod-${{ inputs.domain }}
     permissions:
       contents: write
-      actions: read
+      actions: write
     steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
       - uses: actions/download-artifact@v4
         with:
           artifact-ids: ${{ needs.build.outputs.artifact_id }}
@@ -73,17 +94,14 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 24
-      - name: Prevent reusing a released version for different source
+      - name: Verify active RC and production baseline before deployment
         env:
           GH_TOKEN: ${{ github.token }}
           DOMAIN: ${{ inputs.domain }}
+          ARTIFACT_ID: ${{ needs.build.outputs.artifact_id }}
         run: |
-          VERSION=$(jq -r .version artifact/provenance.json)
-          TAG="$DOMAIN@v$VERSION"
-          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
-            gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern provenance.json --dir "$RUNNER_TEMP/existing"
-            jq -e --arg sha "$GITHUB_SHA" '.sourceSha == $sha' "$RUNNER_TEMP/existing/provenance.json"
-          fi
+          (cd artifact && sha256sum --check SHA256SUMS)
+          node scripts/rc.mjs preflight "$DOMAIN"
       - name: Deploy unchanged artifact to PROD (simulated) and smoke test
         working-directory: artifact
         env:
@@ -99,10 +117,10 @@ jobs:
           DOMAIN: ${{ inputs.domain }}
           ARTIFACT_ID: ${{ needs.build.outputs.artifact_id }}
         run: |
-          VERSION=$(jq -r .version artifact/provenance.json)
+          VERSION=$(jq -r .version artifact/release.json)
           TAG="$DOMAIN@v$VERSION"
           {
-            cat artifact/RELEASE.md
+            cat artifact/STABLE-NOTES.md
             printf '\nSource: `%s`\n\n' "$GITHUB_SHA"
             printf 'Build, STAGE approval, and PROD approval: https://github.com/%s/actions/runs/%s\n\n' "$GITHUB_REPOSITORY" "$GITHUB_RUN_ID"
             printf 'Immutable Actions artifact ID: `%s`\n\n' "$ARTIFACT_ID"
@@ -111,9 +129,14 @@ jobs:
           if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
             printf 'Release %s already exists; preserving its original record.\n' "$TAG"
           else
-            gh release create "$TAG" artifact/provenance.json artifact/SHA256SUMS artifact/CHANGELOG.md \
+            gh release create "$TAG" artifact/release.json artifact/candidate.json artifact/provenance.json artifact/SHA256SUMS artifact/CHANGELOG.md \
               --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
               --title "$DOMAIN $VERSION" \
               --notes-file "$RUNNER_TEMP/notes.md" --latest=false
           fi
           printf '## Released %s\n\n[Domain release](https://github.com/%s/releases/tag/%s)\n' "$DOMAIN" "$GITHUB_REPOSITORY" "$TAG" >> "$GITHUB_STEP_SUMMARY"
+          cat artifact/STABLE-NOTES.md >> "$GITHUB_STEP_SUMMARY"
+      - name: Refresh preparation after stable finalization
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run prepare-release.yml --repo "$GITHUB_REPOSITORY" --ref main

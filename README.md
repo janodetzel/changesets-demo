@@ -1,162 +1,123 @@
-# EMP independent semantic releases
+# EMP independent releases with growing RCs
 
-The repository is the demo. Nx Release calculates independent domain versions and changelogs. GitHub provides release-preparation PRs, artifact storage, manual environment approvals, and final release records.
+The repository demonstrates independent Billing, Payment Provider, and Wingman releases. Feature PRs integrate on `main` and deploy to DEV. An automated preparation PR creates immutable release candidates for STAGE. Accepted candidates become stable production releases without rebuilding application code.
 
-| Domain | EMP owner | Example | Shared dependency |
-| --- | --- | --- | --- |
-| Billing | Flamingo | Charging invoices | `@emp/money` |
-| Payment Provider | Godzilla | Authorization and refunds | `@emp/money` |
-| Wingman | Hangover | Location proxy | None |
+[Open the interactive guide](docs/release-guide.html) locally in your browser. The page is explanatory, uses fictional data, and makes no deployment calls.
 
-Code and data are fictional. Deployment jobs run bundled application code and acceptance tests on GitHub runners; they do not provision real servers or call EMP APIs. There is no dashboard.
+## Your Wingman example
 
-## See what is in a release before approving
+With production on 1.0.0:
 
-A candidate now has a version such as **Billing 1.1.0**, with generated notes listing its feature and fix descriptions. The same notes appear in:
+| Event | Candidate | Notes since production |
+| --- | --- | --- |
+| Hamburg feature merges; preparation PR merges | `1.1.0-rc.1` | Hamburg |
+| STAGE finds a problem; PROD approval rejected | rc.1 remains recorded | Nothing deployed to PROD |
+| Berlin or a compatible fix merges; next preparation merges | `1.1.0-rc.2` | Hamburg + Berlin or fix |
+| New candidate passes STAGE and receives PROD approval | Stable `1.1.0` references rc.2 | All included changes |
 
-- The **Prepare domain releases** PR body and generated `CHANGELOG.md` diff.
-- The candidate build summary before STAGE approval.
-- The STAGE summary before PROD approval.
-- The final **Billing 1.1.0** GitHub Release, tagged `billing@v1.1.0`.
+Each candidate shows **all changes since stable production** and **changes added in this candidate**. A second minor feature can join the same minor target. A major change against the stable contract escalates the target. After stable 1.1.0, a patch targets 1.1.1 and a minor feature targets 1.2.0.
 
-Source SHA, artifact ID, and SHA-256 checksums remain available as provenance. You do not need to download an artifact to read its release notes.
+Candidate numbers are monotonically increasing **per domain**, including across target changes. The next cycle might start at `1.1.1-rc.3`, rather than rc.1. This avoids reusing names after reconciliation.
 
-## Two kinds of merge
-
-GitHub Actions shows separate entry points:
-
-- **Deploy DEV** (`deploy-dev.yml`): selected domains show build → DEV, with no STAGE or PROD jobs.
-- **Release domains** (`release.yml`): version-changed domains show build → STAGE → PROD, with no DEV jobs.
-- **Prepare semantic releases**: maintains the version and changelog PR.
-
-Both deployment entry points listen to pushes on `main` and run the shared selector. The inapplicable workflow ends after selection with its domain calls skipped. This avoids event chaining and cross-run artifact lookup. Shared building and selection use reusable workflows; STAGE and PROD stay in one release run with the same artifact ID.
+## The actual flow
 
 ```mermaid
 flowchart TD
-  FEATURE[Feature PR + Nx version plan] --> MAIN[Merge into main]
-  MAIN --> DEV[Integration build + DEV acceptance]
-  MAIN --> PREP[Bot refreshes Prepare domain releases PR]
-  PREP --> REVIEW[Review independent versions and generated changelogs]
-  REVIEW --> MERGE[Merge preparation PR]
-  MERGE --> BUILD[Build pinned versioned candidates + local checks]
-  BUILD --> SAPP[Review candidate; approve STAGE deployment]
-  SAPP --> STAGE[Same artifact to STAGE + tests]
-  STAGE --> PAPP[Manual STAGE testing; approve PROD]
-  PAPP --> PROD[Same artifact to PROD + smoke tests]
-  PROD --> RECORD[Domain-specific GitHub Release]
+  F[Feature PR + version plan] --> M[Merge main]
+  M --> D[Deploy affected domains to DEV]
+  M --> P[Refresh shared preparation PR]
+  P --> R[Review target, candidate delta, and cumulative changes]
+  R --> C[Merge preparation; build pinned RC]
+  C --> A[Approve STAGE]
+  A --> S[Same artifact to STAGE; automatic and manual tests]
+  S --> B[Approve PROD]
+  B --> V[Verify active RC and unchanged stable baseline]
+  V --> PROD[Deploy same artifact; smoke tests]
+  PROD --> STABLE[Stable GitHub Release points to accepted RC]
 ```
 
-Feature merges deploy to DEV only. Their display version is an integration identifier such as `1.0.0-dev.123456`; it is not a stable release. Plans accumulate while teams integrate and test.
+Preparation merges never redeploy DEV. DEV may advance while STAGE holds a frozen candidate. Integration uses `integration-<domain>` concurrency; the candidate cycle uses `release-<domain>`. A newer prepared RC supersedes older ones. Reject the older pending production deployment so its waiting workflow releases the domain lock. An old candidate cannot promote after a newer candidate record lands on main.
 
-Merging the preparation PR reserves stable versions, consumes their plans, and builds new candidates from that exact merge commit. **It does not deploy to DEV.** Candidate builds run unit and bundle acceptance checks locally, then wait for STAGE approval. STAGE validates the actual release artifact, followed by manual testing and production approval. Local build tests are not evidence of a DEV deployment.
+STAGE and PROD remain in one workflow run. Candidate artifact IDs are passed between jobs, never manually entered. Versioning is external deployment metadata in these sample applications; finalization does not rewrite the original RC provenance or bundle.
 
-DEV may advance to newer feature commits while STAGE tests an older versioned candidate. Each build explicitly checks out its triggering SHA; a queued build never substitutes the latest `main`. STAGE and PROD download that build's immutable artifact ID. Manual DEV testing informs release preparation, but does not automatically approve a new release artifact for production.
-
-One preparation PR batches pending versions across the repository to minimize automation. Billing, Payment, and Wingman have independent version numbers and separate promotion jobs. A failed Payment acceptance test blocks only Payment's promotion, even when its version was prepared alongside Billing.
-
-The preparation PR is not selective cherry-picking. Each artifact includes all integrated source changes in its domain and bundled dependencies at that commit. One unfinished feature can hold back its domain. The demo does not create separate release-preparation PRs per team.
-
-## Add release intent to a feature PR
+## Add a version plan in each feature PR
 
 ```sh
 pnpm release:plan
 ```
 
-Select the affected domain, select `patch`, `minor`, or `major`, and describe the change. The generated file lives in `.nx/version-plans/` and is committed with the code. For example:
+For example:
 
 ```markdown
 ---
-billing: minor
+wingman: minor
 ---
 
-Add descriptions to charging invoices. See PR #22.
+Add Berlin to cities. PR #31.
 
-Backward-compatible response addition. No database migration.
+Backward compatible. No migrations.
 ```
 
-Another Billing PR can add a patch plan for rounding. With current Billing version 1.0.0, Nx combines both plans into 1.1.0 and includes both descriptions. Payment and Wingman keep their versions unless they have plans too. A shared plan's entire description appears in each named domain's changelog; use separate plans when their explanations differ.
+The RC adapter aggregates all unshipped changes against the last stable production version. A patch joining an active minor target keeps that target. A compatible minor joining a minor target also keeps it. New candidates need fresh STAGE validation and manual approval regardless of bump type.
 
-The compatibility promise in this demo is the domain's exported API behavior. Use patch for compatible fixes, minor for compatible additions, and major for incompatible changes. Published API clients would have their own package versions in EMP.
+Changes to shared `packages/money` must name both Billing and Payment. The demo services have no cross-service runtime dependencies; real EMP domains still need compatible contracts and mixed-version tests. RCs do not selectively remove broken features inside a domain.
 
-For a change to `packages/money`, include Billing and Payment in the plan because both bundle that code. The private library itself has no publication lifecycle here. Consumer coverage is checked explicitly; Nx's plan check covers directly touched release projects, not every source dependency.
+## What the preparation PR contains
 
-PR checks require new plans for domain source or package-manifest changes and shared-library consumer changes. A pre-existing pending plan does not satisfy a later feature PR. Test-only or documentation-only changes need no plan. Nx generates versions and changelogs; do not maintain them by hand.
+- Domain manifests with RC versions, updated through the Nx Release API.
+- Per-domain changelog entries containing cumulative and candidate-delta sections.
+- `releases/<domain>.json` with the baseline, intended target, RC sequence, immutable change IDs, and accumulated descriptions.
+- Removal of consumed Nx version plans.
 
-## First semantic release
+The shared PR prepares domain versions together, but teams approve deployments independently. It is not a global production release.
 
-Domain manifests start at `0.0.0` as a migration marker. Three initial plans create 1.0.0, with separate descriptions. Nx renders a major bump under its breaking-changes heading; the initial notes explain that this establishes the version scheme, not a new breaking change.
+Only generated version metadata may change in a preparation PR. Source, dependency, or build-script changes must integrate separately and are rejected if mixed into a preparation. PR checks require fresh plans for source changes; removing a plan is not a way to exclude its code.
 
-After this setup merges:
+## Stable finalization and the source of truth
 
-1. **Deploy DEV** validates integration builds on DEV.
-2. **Prepare semantic releases** runs Nx and opens **Prepare domain releases** from `release/versions`.
-3. Review its generated 1.0.0 versions and changelogs. Run or approve its required PR checks as described below.
-4. Merge that preparation PR. **Release domains** builds each version-changed candidate and requests STAGE approval after local build checks. **Deploy DEV** skips its domain jobs for this merge.
-5. Review the candidate contents and existing integration evidence, then approve the appropriate `stage-*` environments to begin release acceptance testing.
-6. Complete manual STAGE testing and approve `prod-*` environments.
+Stable GitHub Releases named `<domain>@v<version>` are the production baseline for versioning. Each newly finalized release attaches `release.json` with its accepted RC, source SHA, executable digest, artifact ID, and cumulative shipped change IDs.
 
-Existing build-ID GitHub Releases remain historical records. New successful semantic releases use tags such as `billing@v1.0.0`.
+Domain manifests remain at their last prepared **RC** after production deployment. There is no bot commit that rewrites main to a stable version and no resulting DEV deployment. The next preparation reads stable release metadata, subtracts shipped changes from the active record, and calculates the next target from remaining plans.
 
-## GitHub settings
+If an older RC finalized while preparation was running, the next preparation reconciles unshipped changes using their identities. Production preflight checks that its RC is still the current committed record, its stable baseline has not changed, and an existing stable target does not belong to another artifact. Refresh and retest a candidate when those checks fail.
 
-Keep required reviewers on **both** `stage-billing`, `stage-payment`, `stage-wingman`, and their corresponding `prod-*` environments. DEV environments need no approval. Restrict deployment branches to `main`. For a one-person demo, leave self-review prevention disabled.
+Both preflight and finalization run inside the per-domain release lock, so two production candidates from these workflows cannot deploy concurrently. Preparation uses its own serialized workflow. A new preparation can still merge during production execution after preflight; the newer candidate must reconcile against the resulting stable baseline before it can promote. This demo does not implement an atomic transaction spanning Git commits, physical deployments, and GitHub Releases.
 
-Enable **Settings → Actions → General → Allow GitHub Actions to create and approve pull requests** so the preparation workflow can open its PR. It never approves or merges that PR.
+STAGE publishes a GitHub **prerelease** after its automated tests pass. The stable GitHub Release is created only after PROD smoke tests succeed. Failed STAGE tests remain in Actions even if no prerelease record was created. Rejection of a production approval does not roll STAGE back.
 
-By default, the workflow uses `GITHUB_TOKEN`. Depending on GitHub's handling of bot-created PR events, their checks may need manual workflow approval or a maintainer to close and reopen the PR. If required PR checks are absent, close and reopen it as the maintainer to trigger them.
+A failed deployment or failed final release-record step may require a retry. The original artifact remains the deployment input. If real infrastructure partly changes before a failure, deployment history needs reconciliation; this demo does not model partial CDK updates, database rollback, or transactional release-record creation.
 
-For automatic bot-PR checks, optionally set `RELEASE_PR_TOKEN` to a suitable token with repository contents and pull-request write access. A GitHub App token is preferable in EMP; that credential setup is outside this small demo. No registry or cloud credentials are needed.
+## Existing stable-only history
 
-The required check names `test` and `changeset` are retained for existing branch rules. The latter now validates Nx version plans. Require this branch to be up to date before merging a preparation PR, and refresh it after new feature merges. Both PR validation and post-merge classification reject application, build-script, or dependency changes mixed into a preparation. Only version fields, generated changelogs, and version-plan files are allowed. The post-merge check also refuses a changed version when unconsumed plans remain for that domain.
+Existing semantic releases are preserved. On the first RC preparation, unreleased stable-version changelog entries above the actual production baseline are imported into the active candidate scope, with their descriptions. Previously reserved version numbers are historical metadata, not automatically the new RC target.
 
-Merge preparations as separate pushes. A multi-commit push that combines source changes with version preparation is rejected, rather than silently bypassing DEV integration. If a preparation fails this guard, correct it before retrying; there is no fallback deployment.
+Legacy stable releases have no `release.json`; they are accepted as migration baselines before an RC record exists. Once a cycle is active, moving to a stable baseline without shipped change IDs is rejected because safe reconciliation would otherwise be ambiguous. Do not manually create stable release tags during the RC demo.
 
-## Reservation is different from production deployment
+If Wingman 1.2.0 is already in production, the next minor target is 1.3.0. We will not renumber or rewrite historical releases to reproduce an older example.
 
-Nx resolves the next version from committed manifests, not production tags. A prepared 1.1.0 can remain on hold while production still runs 1.0.0. The next prepared version advances from 1.1.0 even if that candidate never reaches production. Version gaps are valid; existing versions must not be reused for different contents.
+## GitHub configuration
 
-Consumed plans mean **included in a reserved version**, not **deployed to production**. Changelogs preserve the included descriptions, while GitHub Environment history and successful GitHub Releases show deployment outcomes.
+- Keep required reviewers on all `stage-*` and `prod-*` environments. Restrict deployment branches to main. DEV is automatic.
+- Enable Actions to create pull requests. The preparation workflow creates or refreshes `release/versions`, but never merges it.
+- Bot-created PR checks may require manual approval or closing and reopening the PR. Optional `RELEASE_PR_TOKEN` can provide an appropriate token; a GitHub App is preferable for EMP.
+- Keep required checks `test` and `changeset`, and require the preparation PR to be up to date.
+- The release workflow needs `contents: write` for candidate/stable releases and `actions: write` to refresh preparation after finalization.
 
-Each candidate's summary shows the exact entry for its reserved version. If production skips a reserved version, the deployment includes that version's changes as well. Review all intervening entries in the committed domain changelog against the previous production release, not only the newest entry. The complete changelog is also attached to the final GitHub Release.
+`Deploy DEV` and `Release domains` remain separate Actions entry points. Both select their relevant domains; the other flow ends without deployment. Path mapping is in `.github/domain-paths.yml`, including shared-library consumers.
 
-The release PR updates while plans accumulate. New source changes require fresh candidate testing. Preparation is serialized, and production refuses an existing semantic release with a different source SHA. Rerunning a failed deployment uses the original artifact output rather than rebuilding during promotion.
+## Tooling and verification
 
-## Path selection and manual-test stability
-
-`.github/domain-paths.yml` selects integration workflows:
-
-| Changed paths | Domains |
-| --- | --- |
-| `domains/billing/**` | Billing |
-| `domains/payment/**` | Payment |
-| `domains/wingman/**` | Wingman |
-| `packages/money/**` | Billing and Payment |
-| Root dependencies, Nx/build/release configuration | All |
-| Root documentation only | None |
-
-An ordinary source change starts the selected domains' integration builds and DEV jobs only. When a push changes reserved domain versions, the classifier validates the preparation and selects only those version-changed domains for release builds, STAGE, and PROD. No DEV jobs run, even for another domain touched only by release metadata. New version plans alone refresh the preparation PR without starting domain deployments.
-
-There are two independent concurrency groups per domain:
-
-- `integration-<domain>` serializes integration builds and DEV deployments.
-- `release-<domain>` holds a candidate stable through build, STAGE approval and testing, and PROD approval and deployment.
-
-A waiting Billing release no longer blocks a newer Billing integration deployment. Neither flow cancels an active deployment. GitHub retains only one pending run per group and does not guarantee FIFO order; further merges may replace queued runs. This is a small-demo queue, not a durable candidate backlog or a guarantee of monotonic DEV source revisions. If a versioned run is cancelled before deployment, its version stays reserved in Git and its notes stay in the changelog; rerun the original workflow when appropriate or prepare a later version.
-
-## Tooling and local checks
-
-The demo pins **Nx 22.5.4**, matching the inspected EMP setup, and **pnpm 10.34.7**. Nx 22.5.4 cannot parse pnpm 12's multi-document lockfile. esbuild still creates standalone domain bundles. Nx handles version calculation, plan consumption, and changelog generation.
-
-The small `scripts/release-notes.mjs` adapter presents generated entries, recognizes version changes, and checks fresh-plan coverage. It does not compute SemVer, maintain deployment state, or choose feature commits. `peter-evans/create-pull-request` handles release-PR updates.
+Nx 22.5.4 updates manifests and provides the contributor version-plan command and touched-project checks. The growing-RC policy is **custom integration** in `scripts/rc.mjs`: it uses the standard `semver` library, reads Nx plans, reconciles change records, and renders cumulative/delta notes. Nx's ordinary plan application does not implement this lifecycle automatically. `scripts/release-notes.mjs` validates PRs and presents artifact notes. GitHub remains responsible for approvals, immutable artifact storage, and release records.
 
 ```sh
 pnpm install --frozen-lockfile
 pnpm build
 pnpm test
 pnpm test:acceptance
-pnpm exec nx release --dry-run --skip-publish
 ```
 
-`pnpm release:prepare` changes manifests and consumes plans. Run it only on a release-preparation branch or let CI do it. It does not publish npm packages or create production tags.
+`pnpm release:prepare` modifies manifests, RC records, changelogs, and plans. It needs `GH_TOKEN` and `GITHUB_REPOSITORY` to read production releases. For isolated local checks, set `RC_BASELINES` to a JSON file mapping domains to `{ "version": "1.0.0", "changeIds": [] }`. Use a disposable checkout for preparation experiments.
 
-Artifacts expire after 90 days and approval runs can expire sooner. Jobs simulate deployment, not partial CDK changes or database recovery. The demo has no cross-service runtime dependencies; EMP still needs backward-compatible APIs, events, migrations, and contract tests for independently deployed peers.
+Tests cover Hamburg/Berlin accumulation, compatible fixes, major escalation, superseded candidates, stable-baseline reconciliation, missing identities, idempotent finalization checks, and workflow artifact routing.
+
+Artifacts expire after 90 days and approval runs may expire earlier. GitHub concurrency retains only one pending run per group and does not guarantee FIFO. All deployments execute simulated application checks, not a long-running physical environment. No registry publication occurs.

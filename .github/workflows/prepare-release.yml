@@ -15,6 +15,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       NX_DAEMON: 'false'
+      GH_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -26,7 +27,7 @@ jobs:
           node-version: 24
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - name: Generate versions and changelogs with Nx
+      - name: Prepare growing RC versions and cumulative notes
         run: pnpm release:prepare
       - name: Validate the prepared candidate
         run: pnpm build && pnpm test
@@ -43,4 +44,5 @@ jobs:
             domains/*/package.json
             domains/*/CHANGELOG.md
             .nx/version-plans/*.md
+            releases/*.json
           delete-branch: true
