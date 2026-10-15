@@ -4,9 +4,7 @@
   "release": {
     "projects": ["billing", "payment", "wingman"],
     "projectsRelationship": "independent",
-    "versionPlans": {
-      "ignorePatternsForPlanCheck": ["**/test/**", "**/*.md"]
-    },
+    "versionPlans": false,
     "version": {
       "currentVersionResolver": "disk",
       "updateDependents": "never",

@@ -1,11 +1,12 @@
 // Presentation and workflow wiring only. Nx owns version calculation and changelogs.
-import { appendFileSync, existsSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
+import { appendFileSync, readFileSync, writeFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
-import { parse } from 'yaml';
 import { isDeepStrictEqual } from 'node:util';
+import { domains, validatePR, changesSince } from './commit-changes.mjs';
+import { parse } from 'yaml';
 
-export const domains = ['billing', 'payment', 'wingman'];
+export { domains };
 const read = file => readFileSync(file, 'utf8');
 const manifest = domain => `domains/${domain}/package.json`;
 const git = args => execFileSync('git', args, { encoding: 'utf8' }).trim();
@@ -21,23 +22,10 @@ export function entry(changelog, version) {
   return section.trim();
 }
 
-export function plans() {
-  const directory = '.nx/version-plans';
-  if (!existsSync(directory)) return [];
-  return readdirSync(directory).filter(name => name.endsWith('.md') && name !== 'README.md').map(name => {
-    const text = read(`${directory}/${name}`);
-    const match = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/.exec(text);
-    if (!match) throw new Error(`Invalid version plan: ${name}`);
-    const bumps = parse(match[1]);
-    if (!bumps || !Object.keys(bumps).length || Object.entries(bumps).some(([domain, bump]) => !domains.includes(domain) || !['patch', 'minor', 'major'].includes(bump))) throw new Error(`Invalid domain or bump in ${name}`);
-    return { name, bumps, summary: text.slice(match[0].length).trim() };
-  });
-}
-
 export function validatePreparation(changed, beforeManifest, afterManifest) {
   for (const file of changed.filter(Boolean)) {
-    if (!/^domains\/(billing|payment|wingman)\/(package\.json|CHANGELOG\.md)$/.test(file) && !/^releases\/(billing|payment|wingman)\.json$/.test(file) && !/^\.nx\/version-plans\/[^/]+\.md$/.test(file)) {
-      throw new Error(`Preparation must contain only versions, changelogs, and consumed plans: ${file}`);
+    if (!/^domains\/(billing|payment|wingman)\/(package\.json|CHANGELOG\.md)$/.test(file) && !/^releases\/(billing|payment|wingman)\.json$/.test(file)) {
+      throw new Error(`Preparation must contain only versions, changelogs, and candidate records: ${file}`);
     }
     if (file.endsWith('/package.json')) {
       const { version: oldVersion, ...before } = beforeManifest(file);
@@ -56,28 +44,25 @@ const checkPreparation = (changed, base) => validatePreparation(
 function main([command, argument]) {
   if (command === 'check') {
     const changed = git(['diff', '--name-only', argument, 'HEAD']).split('\n');
-    const pending = plans();
     if (process.env.HEAD_REF === 'release/versions') {
       for (const domain of domains) {
         if (JSON.parse(read(manifest(domain))).version !== versionAt(domain, argument)) {
-          if (pending.some(plan => domain in plan.bumps)) throw new Error(`${domain}: refresh the preparation PR; unconsumed plans remain`);
           entry(read(`domains/${domain}/CHANGELOG.md`), JSON.parse(read(manifest(domain))).version);
         }
       }
       checkPreparation(changed, argument);
-      console.log('Release preparation has changelogs and no unconsumed plans for its versions');
+      console.log('Release preparation has generated changelogs and metadata-only changes');
       return;
     }
-    const added = new Set(git(['diff', '--name-only', '--diff-filter=A', argument, 'HEAD', '--', '.nx/version-plans']).split('\n').map(file => file.split('/').at(-1)));
-    const newPlans = pending.filter(plan => added.has(plan.name));
+    const event = JSON.parse(read(process.env.GITHUB_EVENT_PATH));
+    validatePR(event.pull_request.title, event.pull_request.body || '', changed, parse(read('.github/domain-paths.yml')));
     for (const domain of domains) {
-      const required = changed.some(file => file.startsWith(`domains/${domain}/src/`) || file === manifest(domain) || (file.startsWith('packages/money/') && domain !== 'wingman'));
-      if (required && !newPlans.some(plan => domain in plan.bumps)) throw new Error(`Add a new version plan for ${domain}; existing pending plans do not describe this PR`);
       if (JSON.parse(read(manifest(domain))).version !== versionAt(domain, argument)) throw new Error('Only the release preparation PR may change domain versions');
       if (changed.includes(`domains/${domain}/CHANGELOG.md`)) throw new Error('Nx generates changelogs in the release preparation PR');
       if (changed.includes(`releases/${domain}.json`)) throw new Error('Only the preparation PR may change RC records');
     }
-    console.log('Changed domains and shared-library consumers have new release plans');
+    if (changed.some(file => file.startsWith('.nx/version-plans/'))) throw new Error('Version plans were removed; put release intent in the PR title and description');
+    console.log('PR title and description supply release intent for affected domains');
     return;
   }
   if (command === 'preview') {
@@ -91,7 +76,6 @@ function main([command, argument]) {
     return;
   }
   if (command === 'candidate') {
-    const pending = plans();
     const changedVersions = domains.filter(domain => JSON.parse(read(manifest(domain))).version !== versionAt(domain, argument));
     if (changedVersions.length) {
       checkPreparation(git(['diff', '--name-only', argument, 'HEAD']).split('\n'), argument);
@@ -101,7 +85,6 @@ function main([command, argument]) {
     for (const domain of domains) {
       const version = JSON.parse(read(manifest(domain))).version;
       const changed = version !== versionAt(domain, argument);
-      if (changed && pending.some(plan => domain in plan.bumps)) throw new Error(`${domain}: version changed but pending plans remain. Refresh the release PR against current main.`);
       if (changed) entry(read(`domains/${domain}/CHANGELOG.md`), version);
       if (changed) {
         const record = JSON.parse(read(`releases/${domain}.json`));
@@ -116,9 +99,9 @@ function main([command, argument]) {
     if (!domains.includes(argument)) throw new Error('Unknown domain');
     const version = JSON.parse(read(manifest(argument))).version;
     const integration = process.env.RELEASE_CANDIDATE !== 'true';
-    const pending = plans().filter(plan => argument in plan.bumps);
+    const pending = integration ? changesSince(JSON.parse(read('release-input.json')).historyStart)[argument] : [];
     const notes = integration
-      ? `# ${argument}: integration build\n\nLast reserved version: ${version}. This source is not a finalized semantic release.\n\n${pending.map(plan => `## ${plan.bumps[argument]} · ${plan.name}\n\n${plan.summary}`).join('\n\n') || 'No pending release notes for this domain.'}`
+      ? `# ${argument}: integration build\n\nLast reserved version: ${version}. This source is not a finalized semantic release.\n\n${pending.map(change => `## ${change.bump} · ${change.commit.slice(0, 8)}\n\n${change.summary}`).join('\n\n') || 'No commit-based release notes since migration.'}`
       : entry(read(`domains/${argument}/CHANGELOG.md`), version);
     const display = integration ? `${version.split('-')[0]}-dev.${process.env.GITHUB_RUN_ID ?? 'local'}` : version;
     writeFileSync('artifact/RELEASE.md', `${notes}\n`);

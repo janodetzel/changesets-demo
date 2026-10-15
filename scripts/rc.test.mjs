@@ -37,6 +37,19 @@ test('after finalization only unshipped changes affect the next target', () => {
   assert.equal(nextCandidate(first, finalized, []), null);
 });
 
+test('repeated history scans do not create new RCs or reintroduce shipped commits', () => {
+  const hamburg = change('Hamburg');
+  const berlin = change('Berlin');
+  const stable = { version: '1.0.0', changeIds: [] };
+  const first = nextCandidate(empty(), stable, [hamburg]);
+  assert.equal(nextCandidate(first, stable, [hamburg]), null);
+  const second = nextCandidate(first, stable, [hamburg, berlin]);
+  assert.deepEqual(second.delta, ['Berlin']);
+  const third = nextCandidate(second, { version: '1.1.0', changeIds: ['Hamburg', 'Berlin'] }, [hamburg, berlin, change('fix', 'patch')]);
+  assert.equal(third.target, '1.1.1');
+  assert.deepEqual(third.changes.map(item => item.id), ['fix']);
+});
+
 test('production rejects superseded candidates, changed baselines, and different stable artifacts', () => {
   const stable = { version: '1.0.0', changeIds: [] };
   const first = nextCandidate(empty(), stable, [change('Hamburg')]);

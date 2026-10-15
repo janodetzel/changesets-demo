@@ -43,6 +43,5 @@ jobs:
           add-paths: |
             domains/*/package.json
             domains/*/CHANGELOG.md
-            .nx/version-plans/*.md
             releases/*.json
           delete-branch: true

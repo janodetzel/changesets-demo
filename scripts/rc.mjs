@@ -1,11 +1,11 @@
 // RC lifecycle policy around Nx. GitHub stable Releases are production truth;
 // committed records preserve candidate scope. No application bytes are rewritten.
-import { readFileSync, writeFileSync, existsSync, mkdirSync, unlinkSync } from 'node:fs';
+import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
 import semver from 'semver';
-import { domains, plans } from './release-notes.mjs';
+import { domains, changesSince } from './commit-changes.mjs';
 
 export const recordPath = domain => `releases/${domain}.json`;
 const read = file => JSON.parse(readFileSync(file, 'utf8'));
@@ -20,16 +20,18 @@ export function nextCandidate(previous, stable, incoming) {
   const shipped = new Set(stable.changeIds || []);
   if (stable.version !== previous.baseline && previous.changes.length && !Array.isArray(stable.changeIds)) throw new Error('Stable release lacks change identities required for reconciliation');
   const seen = new Map();
-  for (const change of [...previous.changes.filter(change => !shipped.has(change.id)), ...incoming]) seen.set(change.id, change);
+  for (const change of [...previous.changes, ...incoming].filter(change => !shipped.has(change.id))) seen.set(change.id, change);
   const changes = [...seen.values()];
-  if (!incoming.length) return null;
+  const known = new Set([...previous.changes.map(change => change.id), ...shipped]);
+  const fresh = incoming.filter(change => !known.has(change.id));
+  if (!fresh.length) return null;
   const rank = { patch: 1, minor: 2, major: 3 };
   const bump = changes.reduce((value, change) => rank[change.bump] > rank[value] ? change.bump : value, 'patch');
   const target = semver.inc(stable.version, bump);
   const sequence = previous.sequence + 1;
   const version = `${target}-rc.${sequence}`;
   if (previous.version && !semver.gt(version, previous.version)) throw new Error('New candidate must advance beyond the previous candidate');
-  return { domain: previous.domain, baseline: stable.version, target, version, sequence, changes, delta: incoming.filter(change => !previous.changes.some(old => old.id === change.id)).map(change => change.id) };
+  return { domain: previous.domain, baseline: stable.version, target, version, sequence, changes, delta: fresh.map(change => change.id) };
 }
 
 export function candidateNotes(record) {
@@ -65,7 +67,7 @@ export function productionBaseline(domain, repository = process.env.GITHUB_REPOS
 }
 
 async function prepare() {
-  const incoming = plans();
+  const incoming = changesSince(read('release-input.json').historyStart);
   const { ReleaseClient } = await import('nx/release/index.js');
   const configuration = read('nx.json').release;
   delete configuration.git;
@@ -74,7 +76,7 @@ async function prepare() {
   for (const domain of domains) {
     const previous = candidateRecord(domain);
     const stable = productionBaseline(domain);
-    const relevant = incoming.filter(plan => domain in plan.bumps).map(plan => ({ id: hash(`${plan.name}\n${JSON.stringify(plan.bumps)}\n${plan.summary}`), bump: plan.bumps[domain], summary: plan.summary, plan: plan.name }));
+    const relevant = incoming[domain];
     // During migration, preserve unreleased stable-version entries in the first RC.
     const legacy = [];
     if (!previous.version && existsSync(`domains/${domain}/CHANGELOG.md`)) {
@@ -95,7 +97,6 @@ async function prepare() {
     writeFileSync(changelog, candidateNotes(next) + '\n\n' + old);
     preview.push(candidateNotes(next));
   }
-  if (preview.length) for (const plan of incoming) unlinkSync(`.nx/version-plans/${plan.name}`);
   writeFileSync('release-preview.md', `# Prepare release candidates\n\n${preview.join('\n\n')}\n\nMerge to pin these candidates. DEV is not redeployed. Each domain needs fresh STAGE validation and separate PROD approval. Finalization reuses the accepted executable artifact.\n`);
 }
 
