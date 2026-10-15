@@ -1,7 +1,9 @@
 {
   "name": "@emp/payment",
-  "version": "0.0.0",
-  "nx": { "name": "payment" },
+  "version": "1.0.0",
+  "nx": {
+    "name": "payment"
+  },
   "private": true,
   "type": "module",
   "scripts": {
@@ -9,5 +11,7 @@
     "test": "node --test test/unit.test.mjs",
     "test:acceptance": "node --test test/acceptance.test.mjs"
   },
-  "dependencies": { "@emp/money": "workspace:*" }
+  "dependencies": {
+    "@emp/money": "workspace:*"
+  }
 }
