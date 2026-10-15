@@ -1,10 +1,13 @@
-# AGENTS.md
+# EMP release-flow demo
 
-pnpm workspace (pnpm via `packageManager`, Node ≥ 22): `apps/web`, `apps/admin`, `apps/api`, `packages/ui` and `packages/flags`. The release flow is described in `README.md`.
+The repository is the demo. Use standard GitHub Actions, artifacts, Environments, and Releases. Keep custom release tooling out of the project.
 
-- Install: `pnpm install --frozen-lockfile`
-- Checks: `pnpm build && pnpm test`
-- Trunk-based: branch from `main`, PR into `main`, squash merge.
-- Every PR needs a changeset: `pnpm changeset`, or `pnpm changeset --empty` for changes that release nothing. A PR that only touches `flags/` needs none. Never edit a `version` or a `CHANGELOG.md` by hand.
-- Unfinished work goes behind a feature flag (`@demo/flags`), off in production, instead of waiting on a branch.
-- Never merge the Version Packages PR: merging it deploys to production, and that's the maintainer's job.
+- Node 24 in CI, pnpm version from `package.json`.
+- `pnpm install --frozen-lockfile && pnpm build && pnpm test && pnpm test:acceptance`.
+- Domain source lives in `domains/billing`, `domains/payment`, and `domains/wingman`.
+- Shared code is bundled by esbuild, so promotion needs no install or rebuild.
+- PR checks run unit tests. Post-merge DEV acceptance checks decide whether each artifact can be promoted.
+- Deployments execute artifact tests and record GitHub Environment deployments. They simulate infrastructure deployment.
+- No dashboard, custom state database, release engine, or feature flags.
+- Update the domain's `RELEASE.md` with user-facing changes.
+- Never approve a production environment, push, publish, or dispatch a deployment unless requested.
