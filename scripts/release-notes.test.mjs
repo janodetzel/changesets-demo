@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { entry, validatePreparation } from './release-notes.mjs';
+import { entry, validatePreparation, rejectVersionPlans } from './release-notes.mjs';
 import { readFileSync } from 'node:fs';
 import { parse } from 'yaml';
 
@@ -10,6 +10,13 @@ test('approval notes contain exactly the requested release, not previous release
   assert.match(entry(changelog, '1.5.0'), /Rounding/);
   assert.doesNotMatch(entry(changelog, '1.5.0'), /Older fix/);
   assert.throws(() => entry(changelog, '1.6.0'), /No generated changelog/);
+});
+
+test('obsolete version plans can be deleted but not added or modified', () => {
+  // Deleted files are excluded by the caller's git --diff-filter=AM query.
+  assert.doesNotThrow(() => rejectVersionPlans(['README.md', 'scripts/commit-changes.mjs']));
+  assert.throws(() => rejectVersionPlans(['.nx/version-plans/new-feature.md']), /Version plans were removed/);
+  assert.throws(() => rejectVersionPlans(['.nx/version-plans/README.md']), /Version plans were removed/);
 });
 
 test('preparation cannot hide source or build-dependency changes from DEV', () => {

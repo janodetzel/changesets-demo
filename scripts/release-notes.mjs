@@ -22,6 +22,12 @@ export function entry(changelog, version) {
   return section.trim();
 }
 
+export function rejectVersionPlans(addedOrModified) {
+  if (addedOrModified.some(file => file.startsWith('.nx/version-plans/'))) {
+    throw new Error('Version plans were removed; put release intent in the PR title and description');
+  }
+}
+
 export function validatePreparation(changed, beforeManifest, afterManifest) {
   for (const file of changed.filter(Boolean)) {
     if (!/^domains\/(billing|payment|wingman)\/(package\.json|CHANGELOG\.md)$/.test(file) && !/^releases\/(billing|payment|wingman)\.json$/.test(file)) {
@@ -61,7 +67,7 @@ function main([command, argument]) {
       if (changed.includes(`domains/${domain}/CHANGELOG.md`)) throw new Error('Nx generates changelogs in the release preparation PR');
       if (changed.includes(`releases/${domain}.json`)) throw new Error('Only the preparation PR may change RC records');
     }
-    if (changed.some(file => file.startsWith('.nx/version-plans/'))) throw new Error('Version plans were removed; put release intent in the PR title and description');
+    rejectVersionPlans(git(['diff', '--name-only', '--diff-filter=AM', argument, 'HEAD']).split('\n'));
     console.log('PR title and description supply release intent for affected domains');
     return;
   }
