@@ -78,6 +78,18 @@ The artifact records this baseline in `baseline.json`, covered by its checksums.
 
 Deployment statuses describe workflow outcomes. A physical deployment that partially changes infrastructure before failure can diverge from the recorded successful baseline. Reconcile such incidents explicitly. This demo does not implement distributed transactions, rollback orchestration, database recovery, or continuous runtime inventory.
 
+## Registry packages
+
+`domains/billing/packages/billing-api` mirrors EMP's per-domain api packages: the domain's public contract, published to GitHub Packages as `@janodetzel/billing-api` so other repositories can install it. The deployable domain stays private; the contract package versions independently with the same Nx Release flow and the same `billing-api@v<version>` tag pattern EMP uses.
+
+The shared preparation PR reserves package versions alongside domain versions. Merging it triggers `package-publish.yml`, which registers the version tag, runs the package tests, and publishes once per version. Published registry versions are immutable: a replayed workflow skips publishing instead of replacing contents. Packages have no STAGE/PROD environments; the registry entry is the publication record, and preparation notes compare against the latest package tag instead of a production deployment.
+
+Consumers configure the scope once in their `.npmrc`:
+
+```text
+@janodetzel:registry=https://npm.pkg.github.com
+```
+
 ## GitHub setup
 
 - Squash merges only; preserve PR title and description.
@@ -85,7 +97,7 @@ Deployment statuses describe workflow outcomes. A physical deployment that parti
 - Allow Actions to create PRs. Optional `RELEASE_PR_TOKEN` can trigger bot-PR checks automatically; otherwise approve those workflows or close/reopen the PR as maintainer.
 - Required reviewers on `stage-billing`, `stage-payment`, `stage-wingman`, and corresponding `prod-*` environments. DEV is automatic.
 - Restrict deployment branches to main. Permit self-review for a one-person demonstration.
-- Workflows request `deployments: read` for cumulative notes, contents write for tags/releases, and actions write for preparation refresh after production.
+- Workflows request `deployments: read` for cumulative notes, contents write for tags/releases, actions write for preparation refresh after production, and packages write for registry publication.
 
 DEV selection uses `nx show projects --affected --base=<push-before> --head=<push-after> --json`. Only affected deployable domains run. Shared library consumers come from Nx's graph. Candidate selection uses changed domain versions, not readiness inferred from affected projects.
 

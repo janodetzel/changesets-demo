@@ -1,0 +1,64 @@
+name: Package publish
+on:
+  workflow_call:
+    inputs:
+      package:
+        type: string
+        required: true
+      path:
+        type: string
+        required: true
+permissions:
+  contents: write
+  packages: write
+jobs:
+  publish:
+    name: Publish to GitHub Packages
+    runs-on: ubuntu-latest
+    concurrency:
+      group: publish-${{ inputs.package }}
+      cancel-in-progress: false
+    env:
+      PACKAGE: ${{ inputs.package }}
+      PACKAGE_DIR: ${{ inputs.path }}
+      NX_DAEMON: 'false'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+          registry-url: https://npm.pkg.github.com
+          scope: '@janodetzel'
+      - run: pnpm install --frozen-lockfile
+      - name: Register a prepared version tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VERSION=$(jq -r .version "$PACKAGE_DIR/package.json")
+          [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          TAG="$PACKAGE@v$VERSION"
+          if git rev-parse --verify "refs/tags/$TAG" > /dev/null 2>&1 \
+            || git fetch origin "refs/tags/$TAG:refs/tags/$TAG" 2> /dev/null; then
+            test "$(git rev-list -n 1 "$TAG")" = "$GITHUB_SHA"
+          else
+            gh api --method POST "repos/$GITHUB_REPOSITORY/git/refs" -f ref="refs/tags/$TAG" -f sha="$GITHUB_SHA"
+          fi
+      - name: Test the package
+        run: pnpm --filter "@janodetzel/$PACKAGE" test
+      - name: Publish once per immutable version
+        env:
+          NODE_AUTH_TOKEN: ${{ github.token }}
+        run: |
+          NAME="@janodetzel/$PACKAGE"
+          VERSION=$(jq -r .version "$PACKAGE_DIR/package.json")
+          if npm view "$NAME@$VERSION" version --registry=https://npm.pkg.github.com > /dev/null 2>&1; then
+            printf '%s@%s is already on GitHub Packages; published versions are never replaced.\n' "$NAME" "$VERSION" >> "$GITHUB_STEP_SUMMARY"
+          else
+            pnpm --filter "$NAME" publish --no-git-checks
+            printf 'Published %s@%s to GitHub Packages.\n' "$NAME" "$VERSION" >> "$GITHUB_STEP_SUMMARY"
+          fi

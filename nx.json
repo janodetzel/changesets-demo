@@ -2,12 +2,13 @@
   "$schema": "./node_modules/nx/schemas/nx-schema.json",
   "defaultBase": "origin/main",
   "release": {
-    "projects": ["billing", "payment", "wingman"],
+    "projects": ["billing", "payment", "wingman", "billing-api"],
     "projectsRelationship": "independent",
     "versionPlans": false,
     "version": {
       "conventionalCommits": true,
       "updateDependents": "auto",
+      "fallbackCurrentVersionResolver": "disk",
       "versionActionsOptions": { "skipLockFileUpdate": true }
     },
     "releaseTag": { "pattern": "{projectName}@v{version}", "checkAllBranchesWhen": false },

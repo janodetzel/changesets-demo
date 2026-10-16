@@ -12,6 +12,8 @@ on:
         value: ${{ jobs.changes.outputs.payment }}
       wingman:
         value: ${{ jobs.changes.outputs.wingman }}
+      billing_api:
+        value: ${{ jobs.changes.outputs.billing_api }}
 permissions:
   contents: read
 jobs:
@@ -24,6 +26,7 @@ jobs:
       billing: ${{ steps.select.outputs.billing }}
       payment: ${{ steps.select.outputs.payment }}
       wingman: ${{ steps.select.outputs.wingman }}
+      billing_api: ${{ steps.select.outputs.billing_api }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -42,33 +45,36 @@ jobs:
           FLOW: ${{ inputs.flow }}
         run: |
           if [[ "$BASE_SHA" =~ ^0+$ ]]; then
-            printf '["billing","payment","wingman"]' > "$RUNNER_TEMP/affected.json"
+            printf '["billing","payment","wingman","billing-api"]' > "$RUNNER_TEMP/affected.json"
             BASE_SHA=$(git rev-list --max-parents=0 HEAD)
           else
             pnpm exec nx show projects --affected --base="$BASE_SHA" --head="$GITHUB_SHA" --json > "$RUNNER_TEMP/affected.json"
           fi
+          manifest() { if [[ "$1" == billing-api ]]; then printf 'domains/billing/packages/%s/package.json' "$1"; else printf 'domains/%s/package.json' "$1"; fi; }
+          previous() { git show "$BASE_SHA:$(manifest "$1")" 2> /dev/null | jq -r .version || true; }
           preparation=false
-          for domain in billing payment wingman; do
-            before=$(git show "$BASE_SHA:domains/$domain/package.json" | jq -r .version)
-            after=$(jq -r .version "domains/$domain/package.json")
-            if [[ "$before" != "$after" ]]; then preparation=true; fi
+          for project in billing payment wingman billing-api; do
+            before=$(previous "$project")
+            after=$(jq -r .version "$(manifest "$project")")
+            # A project absent from the base commit is newly introduced, not prepared.
+            if [[ -n "$before" && "$before" != "$after" ]]; then preparation=true; fi
           done
           if [[ "$preparation" == true ]]; then
             # A metadata-only preparation must not bypass application integration.
             while IFS= read -r file; do
-              [[ "$file" =~ ^domains/(billing|payment|wingman)/(package.json|CHANGELOG.md)$ ]] || { printf 'Unexpected preparation file: %s\n' "$file"; exit 1; }
+              [[ "$file" =~ ^(domains/(billing|payment|wingman)|domains/billing/packages/billing-api)/(package.json|CHANGELOG.md)$ ]] || { printf 'Unexpected preparation file: %s\n' "$file"; exit 1; }
               if [[ "$file" == */package.json ]]; then
                 diff <(git show "$BASE_SHA:$file" | jq -S 'del(.version)') <(jq -S 'del(.version)' "$file")
               fi
             done < <(git diff --name-only "$BASE_SHA" "$GITHUB_SHA")
           fi
-          printf '## %s domain selection\n\n| Domain | Selected |\n| --- | --- |\n' "$FLOW" >> "$GITHUB_STEP_SUMMARY"
-          for domain in billing payment wingman; do
+          printf '## %s project selection\n\n| Project | Selected |\n| --- | --- |\n' "$FLOW" >> "$GITHUB_STEP_SUMMARY"
+          for project in billing payment wingman billing-api; do
             selected=false
-            before=$(git show "$BASE_SHA:domains/$domain/package.json" | jq -r .version)
-            after=$(jq -r .version "domains/$domain/package.json")
-            if [[ "$FLOW" == release && "$before" != "$after" ]]; then selected=true; fi
-            if [[ "$FLOW" == dev && "$preparation" == false ]] && jq -e --arg domain "$domain" 'index($domain) != null' "$RUNNER_TEMP/affected.json" > /dev/null; then selected=true; fi
-            printf '%s=%s\n' "$domain" "$selected" >> "$GITHUB_OUTPUT"
-            printf '| %s | %s |\n' "$domain" "$selected" >> "$GITHUB_STEP_SUMMARY"
+            before=$(previous "$project")
+            after=$(jq -r .version "$(manifest "$project")")
+            if [[ "$FLOW" == release && -n "$before" && "$before" != "$after" ]]; then selected=true; fi
+            if [[ "$FLOW" == dev && "$preparation" == false ]] && jq -e --arg project "$project" 'index($project) != null' "$RUNNER_TEMP/affected.json" > /dev/null; then selected=true; fi
+            printf '%s=%s\n' "${project//-/_}" "$selected" >> "$GITHUB_OUTPUT"
+            printf '| %s | %s |\n' "$project" "$selected" >> "$GITHUB_STEP_SUMMARY"
           done

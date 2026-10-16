@@ -6,6 +6,7 @@ permissions:
   contents: write
   actions: write
   deployments: read
+  packages: write
 jobs:
   changes:
     name: Select versioned domains
@@ -33,3 +34,11 @@ jobs:
     uses: ./.github/workflows/domain-release.yml
     with:
       domain: wingman
+  billing-api:
+    name: Billing API package
+    needs: changes
+    if: needs.changes.outputs.billing_api == 'true'
+    uses: ./.github/workflows/package-publish.yml
+    with:
+      package: billing-api
+      path: domains/billing/packages/billing-api
