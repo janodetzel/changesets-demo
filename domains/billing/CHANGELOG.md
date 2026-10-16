@@ -1,3 +1,13 @@
+## 1.2.5 (2026-10-16)
+
+### 🩹 Fixes
+
+- **billing:** forgot emoji ([#61](https://github.com/janodetzel/nx-releases-demo/pull/61))
+
+### ❤️ Thank You
+
+- Jano @janodetzel
+
 ## 1.2.4 (2026-10-16)
 
 ### 🩹 Fixes
