@@ -1,6 +1,6 @@
 {
   "name": "@janodetzel/payment-api",
-  "version": "1.3.1",
+  "version": "1.3.2",
   "nx": {
     "name": "payment-api"
   },
