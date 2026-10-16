@@ -1,0 +1,80 @@
+name: Snapshot packages
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+  packages: write
+concurrency:
+  group: snapshot-packages
+  cancel-in-progress: false
+jobs:
+  snapshot:
+    name: Publish snapshots for affected registry packages
+    runs-on: ubuntu-latest
+    env:
+      NX_DAEMON: 'false'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+          registry-url: https://npm.pkg.github.com
+          scope: '@janodetzel'
+      - run: pnpm install --frozen-lockfile
+      - name: Publish 0.0.0-snapshot.<sha> for affected packages
+        env:
+          BASE_SHA: ${{ github.event.before }}
+          NODE_AUTH_TOKEN: ${{ github.token }}
+          EVENT: ${{ github.event_name }}
+        run: |
+          # Registry packages: nx project name -> workspace directory.
+          packages='billing-api=domains/billing/packages/billing-api'
+          ALL=false
+          if [[ "$EVENT" == workflow_dispatch || -z "$BASE_SHA" || "$BASE_SHA" =~ ^0+$ ]]; then
+            ALL=true
+          else
+            # A preparation merge only moves manifests right before stable
+            # publication; it never needs a snapshot.
+            for domain in billing payment wingman; do
+              before=$(git show "$BASE_SHA:domains/$domain/package.json" | jq -r .version)
+              after=$(jq -r .version "domains/$domain/package.json")
+              if [[ "$before" != "$after" ]]; then
+                printf 'Preparation push; no snapshots published.\n' >> "$GITHUB_STEP_SUMMARY"
+                exit 0
+              fi
+            done
+            pnpm exec nx show projects --affected --base="$BASE_SHA" --head="$GITHUB_SHA" --json > "$RUNNER_TEMP/affected.json"
+          fi
+          SHORT_SHA=${GITHUB_SHA::7}
+          published=false
+          for entry in $packages; do
+            project=${entry%%=*}
+            dir=${entry#*=}
+            if [[ "$ALL" != true ]] && ! jq -e --arg p "$project" 'index($p) != null' "$RUNNER_TEMP/affected.json" > /dev/null; then
+              continue
+            fi
+            NAME=$(jq -r .name "$dir/package.json")
+            VERSION="0.0.0-snapshot.$SHORT_SHA"
+            # Snapshots are immutable like stable versions: same sha, same
+            # contents, so a replay skips instead of republishing.
+            if npm view "$NAME@$VERSION" version --registry=https://npm.pkg.github.com > /dev/null 2>&1; then
+              printf '%s@%s already exists; snapshots are never replaced.\n' "$NAME" "$VERSION" >> "$GITHUB_STEP_SUMMARY"
+              published=true
+              continue
+            fi
+            (cd "$dir" && npm pkg set version="$VERSION")
+            pnpm --filter "$NAME" test
+            pnpm --filter "$NAME" publish --tag snapshot --no-git-checks
+            printf 'Published %s@%s with dist-tag `snapshot` for consumer iteration.\n' "$NAME" "$VERSION" >> "$GITHUB_STEP_SUMMARY"
+            published=true
+          done
+          if [[ "$published" == false ]]; then
+            printf 'No registry package affected by this push; no snapshots published.\n' >> "$GITHUB_STEP_SUMMARY"
+          fi
