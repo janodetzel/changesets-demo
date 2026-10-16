@@ -1,3 +1,13 @@
+## 1.5.5 (2026-10-16)
+
+### 🩹 Fixes
+
+- **wingman:** fix wingman ([#84](https://github.com/janodetzel/nx-releases-demo/pull/84))
+
+### ❤️ Thank You
+
+- Jano @janodetzel
+
 ## 1.5.4 (2026-10-16)
 
 ### 🚀 Features
