@@ -1,4 +1,4 @@
-name: Hotfix
+name: 'Manual: Hotfix'
 on:
   workflow_dispatch:
     inputs:
