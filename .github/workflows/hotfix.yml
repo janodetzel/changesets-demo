@@ -1,0 +1,55 @@
+name: Release a hotfix
+on:
+  workflow_dispatch:
+    inputs:
+      domain:
+        description: Domain to hotfix
+        type: choice
+        required: true
+        options: [billing, payment, wingman]
+permissions:
+  contents: write
+  actions: write
+  deployments: read
+  packages: write
+jobs:
+  guard:
+    name: Check the dispatch ref
+    runs-on: ubuntu-latest
+    steps:
+      - name: Refuse to release a hotfix from main
+        run: |
+          # Releases from main go through the preparation PR. This entry point
+          # exists only for branches cut from a deployed commit.
+          if [[ "$GITHUB_REF_NAME" == "main" ]]; then
+            printf 'Dispatch this workflow on a hotfix branch, not on main.\n'
+            exit 1
+          fi
+  billing:
+    name: Billing
+    needs: guard
+    if: inputs.domain == 'billing'
+    uses: ./.github/workflows/domain-release.yml
+    with:
+      domain: billing
+      package: billing-api
+      package_path: domains/billing/packages/billing-api
+      hotfix: true
+  payment:
+    name: Payment Provider
+    needs: guard
+    if: inputs.domain == 'payment'
+    uses: ./.github/workflows/domain-release.yml
+    with:
+      domain: payment
+      package: payment-api
+      package_path: domains/payment/packages/payment-api
+      hotfix: true
+  wingman:
+    name: Wingman
+    needs: guard
+    if: inputs.domain == 'wingman'
+    uses: ./.github/workflows/domain-release.yml
+    with:
+      domain: wingman
+      hotfix: true

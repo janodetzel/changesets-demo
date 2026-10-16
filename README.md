@@ -98,13 +98,34 @@ Stable versions appear only through the release decision. Consumers iterating on
 
 The `0.0.0-…` shape can never satisfy a `^` range, so a snapshot is installed only by exact version and cannot be mistaken for a release. Snapshots verify end to end as consumer code plus the snapshot package plus the provider's automatic DEV deployment from the same merge; they reserve no version, create no candidate, and never touch the release pipeline or its per-domain queue. Root configuration pushes can conservatively mark every package affected and publish redundant snapshots; this is registry noise, not a correctness issue.
 
+## Hotfixes
+
+Default to fixing forward: merge the fix, let the preparation PR reserve the next version, approve it through the normal gates. Pending work on main rides along, which is correct when that work is merely unreleased rather than unready. The approvals are not the slow part.
+
+Use the hotfix path only when main is genuinely not shippable. It branches from the commit production is actually running, which the deployment record identifies:
+
+```sh
+SHA=$(gh api "repos/$REPO/deployments?environment=prod-billing" --jq '.[0].sha')
+git switch --create hotfix/billing "$SHA"   # apply the fix, push the branch
+gh workflow run hotfix-prepare.yml --ref hotfix/billing --field domain=billing
+gh workflow run hotfix.yml         --ref hotfix/billing --field domain=billing
+```
+
+`Prepare a hotfix version` resolves the base from tags reachable on that branch, so it derives a patch on the deployed version rather than on the newest tag on main. Reserved versions are immutable even when their candidate never shipped, so it steps over any already claimed number and reports which it skipped. A hotfix therefore carries a **higher version containing less code** than a pending candidate; version order is not a containment claim, and the deployment record remains the answer to what runs.
+
+`Release a hotfix` then uses the ordinary domain pipeline: same tag reservation, same checksums and provenance, same STAGE and PROD approvals, same GitHub Release. A hotfix is the same door with a different source ref, never a side door that skips verification. It runs in its own concurrency lane, so it does not queue behind the pending candidate whose contents caused it. Cumulative notes stay correct because the production baseline is an ancestor of the branch, so they describe the fix alone.
+
+Both entry points refuse to run on main. Afterwards, **merge the branch back into main** or the next regular candidate silently drops the fix. Contract packages follow the group version, and a hotfix publishes under the `backport` dist-tag when a higher version already holds `latest`.
+
+Two limits worth stating plainly: a fix that depends on pending work cannot be branched below it, so that case is fix-forward only; and production environments must allow deployments from `hotfix/*`, not only from main.
+
 ## GitHub setup
 
 - Squash merges only; preserve PR title and description.
 - Require `test` and `pr-title` checks, and keep preparation PRs up to date.
 - Allow Actions to create PRs. Optional `RELEASE_PR_TOKEN` can trigger bot-PR checks automatically; otherwise approve those workflows or close/reopen the PR as maintainer.
 - Required reviewers on `stage-billing`, `stage-payment`, `stage-wingman`, and corresponding `prod-*` environments. DEV is automatic.
-- Restrict deployment branches to main. Permit self-review for a one-person demonstration.
+- Restrict deployment branches to main and `hotfix/*`. Permit self-review for a one-person demonstration.
 - Workflows request `deployments: read` for cumulative notes, contents write for tags/releases, actions write for preparation refresh after production, and packages write for registry publication.
 
 DEV selection uses `nx show projects --affected --base=<push-before> --head=<push-after> --json`. Only affected deployable domains run. Shared library consumers come from Nx's graph. Candidate selection uses changed domain versions, not readiness inferred from affected projects.
