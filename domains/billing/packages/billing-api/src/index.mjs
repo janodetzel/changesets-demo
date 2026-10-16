@@ -10,3 +10,10 @@ export function isInvoice(value) {
     && value.currency === INVOICE_CURRENCY
     && typeof value.description === 'string';
 }
+
+export function isAuthorized(value) {
+  return Boolean(value)
+    && value.status === 'authorized'
+    && Number.isInteger(value.amountCents)
+    && value.amountCents >= 0;
+}
