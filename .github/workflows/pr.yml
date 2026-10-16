@@ -18,8 +18,10 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm build && pnpm test
-  changeset:
-    # Preserve the existing required-check name; no changeset files are used.
+  pr-title:
+    # Required check: renaming this job requires updating the branch
+    # protection required-checks list in the same change.
+    name: pr-title
     runs-on: ubuntu-latest
     steps:
       - uses: amannn/action-semantic-pull-request@48f256284bd46cdaab1048c3721360e808335d50 # v6

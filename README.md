@@ -43,7 +43,7 @@ fix(payment): preserve refunded cents
 feat(billing)!: remove the legacy invoice response
 ```
 
-`feat` requests minor, `fix` patch, and `!` or `BREAKING CHANGE:` declares major. Other types follow Nx's native defaults. The maintained `amannn/action-semantic-pull-request` action validates title syntax under the historical required-check name `changeset`. No changeset files or mandatory Markdown description sections exist. Preserve PR descriptions in squash commits for human context, but native changelogs primarily display commit subjects and references.
+`feat` requests minor, `fix` patch, and `!` or `BREAKING CHANGE:` declares major. Other types follow Nx's native defaults. The maintained `amannn/action-semantic-pull-request` action validates title syntax as the required `pr-title` check. No changeset files or mandatory Markdown description sections exist. Preserve PR descriptions in squash commits for human context, but native changelogs primarily display commit subjects and references.
 
 Scopes label the change; Nx project changes and its dependency graph associate changes with projects. Review actual compatibility and generated changelogs. A syntactically correct title cannot prove a safe SemVer classification. Shared dependency and root configuration changes can conservatively affect several projects under Nx defaults. Configure native Nx inputs when necessary rather than introducing another release-impact engine.
 
@@ -95,7 +95,7 @@ Consumers configure the scope once in their `.npmrc`:
 ## GitHub setup
 
 - Squash merges only; preserve PR title and description.
-- Require `test` and `changeset` checks, and keep preparation PRs up to date.
+- Require `test` and `pr-title` checks, and keep preparation PRs up to date.
 - Allow Actions to create PRs. Optional `RELEASE_PR_TOKEN` can trigger bot-PR checks automatically; otherwise approve those workflows or close/reopen the PR as maintainer.
 - Required reviewers on `stage-billing`, `stage-payment`, `stage-wingman`, and corresponding `prod-*` environments. DEV is automatic.
 - Restrict deployment branches to main. Permit self-review for a one-person demonstration.
