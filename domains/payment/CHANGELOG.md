@@ -1,3 +1,13 @@
+## 1.3.0 (2026-10-16)
+
+### 🚀 Features
+
+- **payment:** oops broke payment ([#73](https://github.com/janodetzel/nx-releases-demo/pull/73))
+
+### ❤️ Thank You
+
+- Jano @janodetzel
+
 ## 1.2.0 (2026-10-16)
 
 ### 🚀 Features

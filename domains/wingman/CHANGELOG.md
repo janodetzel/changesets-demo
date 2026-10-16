@@ -1,3 +1,13 @@
+## 1.5.3 (2026-10-16)
+
+### 🚀 Features
+
+- **domain:** add Oslo ([#71](https://github.com/janodetzel/nx-releases-demo/pull/71))
+
+### ❤️ Thank You
+
+- Jano @janodetzel
+
 ## 1.5.2 (2026-10-16)
 
 ### 🚀 Features
