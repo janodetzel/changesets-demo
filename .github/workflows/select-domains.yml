@@ -47,11 +47,31 @@ jobs:
           else
             pnpm exec nx show projects --affected --base="$BASE_SHA" --head="$GITHUB_SHA" --json > "$RUNNER_TEMP/affected.json"
           fi
+          released_elsewhere() {
+            # True when this version's tag already points at a different commit,
+            # which means it was released from another ref and this push is a
+            # hotfix back-merge. A tag on this very commit is this push's own
+            # reservation, so a re-run must still proceed.
+            TAG="$1@v$2"
+            git rev-parse --verify --quiet "refs/tags/$TAG" > /dev/null \
+              || git fetch origin "refs/tags/$TAG:refs/tags/$TAG" 2> /dev/null \
+              || return 1
+            [[ "$(git rev-list -n 1 "refs/tags/$TAG")" != "$GITHUB_SHA" ]]
+          }
           preparation=false
+          backmerged=''
           for domain in billing payment wingman; do
             before=$(git show "$BASE_SHA:domains/$domain/package.json" | jq -r .version)
             after=$(jq -r .version "domains/$domain/package.json")
-            if [[ "$before" != "$after" ]]; then preparation=true; fi
+            if [[ "$before" == "$after" ]]; then continue; fi
+            # A back-merge carries the hotfix source and its version together.
+            # That code already shipped, so the purity guard must not reject it
+            # and the release flow must not reserve the tag a second time.
+            if released_elsewhere "$domain" "$after"; then
+              backmerged="$backmerged $domain@v$after"
+            else
+              preparation=true
+            fi
           done
           if [[ "$preparation" == true ]]; then
             # A metadata-only preparation must not bypass application integration.
@@ -69,8 +89,11 @@ jobs:
             selected=false
             before=$(git show "$BASE_SHA:domains/$domain/package.json" | jq -r .version)
             after=$(jq -r .version "domains/$domain/package.json")
-            if [[ "$FLOW" == release && "$before" != "$after" ]]; then selected=true; fi
+            if [[ "$FLOW" == release && "$before" != "$after" ]] && ! released_elsewhere "$domain" "$after"; then selected=true; fi
             if [[ "$FLOW" == dev && "$preparation" == false ]] && jq -e --arg domain "$domain" 'index($domain) != null' "$RUNNER_TEMP/affected.json" > /dev/null; then selected=true; fi
             printf '%s=%s\n' "$domain" "$selected" >> "$GITHUB_OUTPUT"
             printf '| %s | %s |\n' "$domain" "$selected" >> "$GITHUB_STEP_SUMMARY"
           done
+          if [[ -n "$backmerged" ]]; then
+            printf '\nAlready released from another ref, so not released again:%s. DEV still follows main.\n' "$backmerged" >> "$GITHUB_STEP_SUMMARY"
+          fi
