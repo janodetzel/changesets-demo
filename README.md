@@ -80,9 +80,11 @@ Deployment statuses describe workflow outcomes. A physical deployment that parti
 
 ## Registry packages
 
-`domains/billing/packages/billing-api` mirrors EMP's per-domain api packages: the domain's public contract, published to GitHub Packages as `@janodetzel/billing-api` so other repositories can install it. The deployable domain stays private; the contract package versions independently with the same Nx Release flow and the same `billing-api@v<version>` tag pattern EMP uses.
+`domains/billing/packages/billing-api` models EMP's per-domain contract packages on a greenfield: the domain's public contract, published to GitHub Packages as `@janodetzel/billing-api` so other repositories can install it. The deployable domain stays private.
 
-The shared preparation PR reserves package versions alongside domain versions. Merging it triggers `package-publish.yml`, which registers the version tag, runs the package tests, and publishes once per version. Published registry versions are immutable: a replayed workflow skips publishing instead of replacing contents. Packages have no STAGE/PROD environments; the registry entry is the publication record, and preparation notes compare against the latest package tag instead of a production deployment.
+Each domain is a **fixed Nx release group**: the deployable and its contract packages share one version, one `<domain>@v<version>` tag, and one preparation entry. `billing 1.3.0` means the deployed service and the published `billing-api@1.3.0` describe the same contract; there is no second version space per domain to reconcile. A contract-only change still produces a full domain release candidate, because the domain's public interface changed.
+
+One release decision, two outputs: merging the preparation PR runs the domain pipeline, which reserves the group tag, builds the deploy artifact, and publishes the packages. Publishing is **not** gated by STAGE/PROD approvals, deliberately: registry versions are immutable and consumers opt in by upgrading, while deployments change shared environments. Consumers can build against a new contract before the matching service is approved to production; what is actually running remains the deployment record's job, never the registry's. A replayed workflow skips an already-published version instead of replacing its contents.
 
 Consumers configure the scope once in their `.npmrc`:
 

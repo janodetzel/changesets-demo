@@ -6,12 +6,12 @@ import { ReleaseClient } from 'nx/release/index.js';
 import { pathToFileURL } from 'node:url';
 
 const domains = ['billing', 'payment', 'wingman'];
-// Registry packages publish to GitHub Packages instead of deploying. Their
-// publication record is the immutable registry version behind the latest tag.
-const packages = { 'billing-api': 'domains/billing/packages/billing-api' };
+// Registry packages share their domain group's fixed version and publish to
+// GitHub Packages instead of deploying. Their notes compare against the same
+// production baseline as the owning domain.
+const packages = { 'billing-api': { dir: 'domains/billing/packages/billing-api', domain: 'billing' } };
 const git = args => execFileSync('git', args, { encoding: 'utf8' }).trim();
 const gh = args => execFileSync('gh', args, { encoding: 'utf8' }).trim();
-const latestTag = project => git(['tag', '-l', `${project}@v*`, '--sort=-v:refname']).split('\n')[0] || null;
 
 export function successfulDeployment(deployments) {
   return [...deployments].sort((a, b) => b.id - a.id)
@@ -67,12 +67,12 @@ async function main([domain, mode]) {
       const before = JSON.parse(git(['show', `HEAD:domains/${name}/package.json`])).version;
       if (version !== before) blocks.push(await notes(name, version, production(name)));
     }
-    for (const [name, dir] of Object.entries(packages)) {
+    for (const [name, { dir, domain }] of Object.entries(packages)) {
       const version = JSON.parse(readFileSync(`${dir}/package.json`, 'utf8')).version;
       const before = JSON.parse(git(['show', `HEAD:${dir}/package.json`])).version;
       if (version === before) continue;
-      const previous = latestTag(name);
-      blocks.push(await notes(name, version, null, { firstRelease: !previous, headline: `Registry publication: **${previous ? previous.slice(name.length + 2) : 'none'} → ${version}**\n\n` }));
+      const baseline = production(domain);
+      blocks.push(await notes(name, version, baseline, { headline: `Registry publication with ${domain}: **${baseline?.version || 'none'} → ${version}**\n\n` }));
     }
     writeFileSync('release-preview.md', `# Prepare domain releases\n\n${blocks.join('\n\n')}\n\nNx reserves these versions. This does not deploy DEV or production. STAGE and PROD require approval and use the same artifact. Skipped versions remain in cumulative production-to-candidate notes.\n`);
   }

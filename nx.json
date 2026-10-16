@@ -2,8 +2,23 @@
   "$schema": "./node_modules/nx/schemas/nx-schema.json",
   "defaultBase": "origin/main",
   "release": {
-    "projects": ["billing", "payment", "wingman", "billing-api"],
-    "projectsRelationship": "independent",
+    "groups": {
+      "billing": {
+        "projects": ["billing", "billing-api"],
+        "projectsRelationship": "fixed",
+        "version": { "conventionalCommits": true }
+      },
+      "payment": {
+        "projects": ["payment"],
+        "projectsRelationship": "fixed",
+        "version": { "conventionalCommits": true }
+      },
+      "wingman": {
+        "projects": ["wingman"],
+        "projectsRelationship": "fixed",
+        "version": { "conventionalCommits": true }
+      }
+    },
     "versionPlans": false,
     "version": {
       "conventionalCommits": true,
@@ -11,7 +26,7 @@
       "fallbackCurrentVersionResolver": "disk",
       "versionActionsOptions": { "skipLockFileUpdate": true }
     },
-    "releaseTag": { "pattern": "{projectName}@v{version}", "checkAllBranchesWhen": false },
+    "releaseTag": { "pattern": "{releaseGroupName}@v{version}", "checkAllBranchesWhen": false },
     "changelog": {
       "projectChangelogs": {
         "createRelease": false,

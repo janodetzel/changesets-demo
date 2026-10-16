@@ -20,6 +20,8 @@ jobs:
     uses: ./.github/workflows/domain-release.yml
     with:
       domain: billing
+      package: billing-api
+      package_path: domains/billing/packages/billing-api
   payment:
     name: Payment Provider
     needs: changes
@@ -34,11 +36,3 @@ jobs:
     uses: ./.github/workflows/domain-release.yml
     with:
       domain: wingman
-  billing-api:
-    name: Billing API package
-    needs: changes
-    if: needs.changes.outputs.billing_api == 'true'
-    uses: ./.github/workflows/package-publish.yml
-    with:
-      package: billing-api
-      path: domains/billing/packages/billing-api

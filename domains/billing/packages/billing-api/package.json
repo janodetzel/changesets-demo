@@ -1,6 +1,6 @@
 {
   "name": "@janodetzel/billing-api",
-  "version": "0.0.1",
+  "version": "1.2.4",
   "nx": {
     "name": "billing-api"
   },
