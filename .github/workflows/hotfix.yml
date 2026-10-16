@@ -1,4 +1,4 @@
-name: Release a hotfix
+name: Hotfix
 on:
   workflow_dispatch:
     inputs:
@@ -10,46 +10,88 @@ on:
 permissions:
   contents: write
   actions: write
-  deployments: read
-  packages: write
+concurrency:
+  group: hotfix-${{ inputs.domain }}
+  cancel-in-progress: false
 jobs:
-  guard:
-    name: Check the dispatch ref
+  prepare:
+    name: Version this branch and start its release
     runs-on: ubuntu-latest
+    env:
+      DOMAIN: ${{ inputs.domain }}
+      NX_DAEMON: 'false'
     steps:
-      - name: Refuse to release a hotfix from main
+      - name: Refuse to prepare a hotfix on main
         run: |
-          # Releases from main go through the preparation PR. This entry point
-          # exists only for branches cut from a deployed commit.
+          # Hotfixes branch from the commit production is running. The normal
+          # preparation PR owns versions on main.
           if [[ "$GITHUB_REF_NAME" == "main" ]]; then
             printf 'Dispatch this workflow on a hotfix branch, not on main.\n'
             exit 1
           fi
-  billing:
-    name: Billing
-    needs: guard
-    if: inputs.domain == 'billing'
-    uses: ./.github/workflows/domain-release.yml
-    with:
-      domain: billing
-      package: billing-api
-      package_path: domains/billing/packages/billing-api
-      hotfix: true
-  payment:
-    name: Payment Provider
-    needs: guard
-    if: inputs.domain == 'payment'
-    uses: ./.github/workflows/domain-release.yml
-    with:
-      domain: payment
-      package: payment-api
-      package_path: domains/payment/packages/payment-api
-      hotfix: true
-  wingman:
-    name: Wingman
-    needs: guard
-    if: inputs.domain == 'wingman'
-    uses: ./.github/workflows/domain-release.yml
-    with:
-      domain: wingman
-      hotfix: true
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref_name }}
+          fetch-depth: 0
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Choose a version that no reserved tag already owns
+        id: version
+        run: |
+          # Only tags reachable from this branch count, so the base is the
+          # version this branch was cut from, not the newest tag on main.
+          TAG=$(git describe --tags --match "$DOMAIN@v*" --abbrev=0)
+          CURRENT=${TAG#"$DOMAIN@v"}
+          VERSION=$(pnpm exec semver --increment patch "$CURRENT")
+          SKIPPED=''
+          # A reserved version is immutable, even when its candidate never
+          # shipped, so step over anything already claimed.
+          while git ls-remote --exit-code --tags origin "refs/tags/$DOMAIN@v$VERSION" > /dev/null 2>&1; do
+            SKIPPED="$SKIPPED $DOMAIN@v$VERSION"
+            VERSION=$(pnpm exec semver --increment patch "$VERSION")
+          done
+          printf 'version=%s\n' "$VERSION" >> "$GITHUB_OUTPUT"
+          printf 'base=%s\n' "$CURRENT" >> "$GITHUB_OUTPUT"
+          printf 'skipped=%s\n' "$SKIPPED" >> "$GITHUB_OUTPUT"
+      - name: Write the version and changelog with native Nx Release
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: pnpm exec nx release --skip-publish --groups "$DOMAIN" --specifier "$VERSION"
+      - name: Validate the prepared hotfix
+        run: pnpm build && pnpm test
+      - name: Commit the prepared version to this branch
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add "domains/$DOMAIN/package.json" "domains/$DOMAIN/CHANGELOG.md"
+          if compgen -G "domains/$DOMAIN/packages/*" > /dev/null; then
+            git add "domains/$DOMAIN"/packages/*/package.json "domains/$DOMAIN"/packages/*/CHANGELOG.md
+          fi
+          git commit -m "chore(release): prepare $DOMAIN hotfix $VERSION"
+          git push origin "HEAD:$GITHUB_REF_NAME"
+      - name: Start the release of the commit just pushed
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.version.outputs.version }}
+          BASE: ${{ steps.version.outputs.base }}
+          SKIPPED: ${{ steps.version.outputs.skipped }}
+        run: |
+          # A separate run is required so the release builds the commit this
+          # job just created, rather than the ref this run started from.
+          gh workflow run hotfix-release.yml --repo "$GITHUB_REPOSITORY" \
+            --ref "$GITHUB_REF_NAME" --field domain="$DOMAIN"
+          {
+            printf '## %s hotfix %s\n\n' "$DOMAIN" "$VERSION"
+            printf 'Branch `%s` was cut at %s %s.\n\n' "$GITHUB_REF_NAME" "$DOMAIN" "$BASE"
+            if [[ -n "$SKIPPED" ]]; then
+              printf 'Skipped already reserved versions:%s. A hotfix contains less than those candidates; the deployment record, not the version order, says what runs.\n\n' "$SKIPPED"
+            fi
+            printf 'Release started. Approve **stage-%s**, then **prod-%s**, in the run it created.\n' "$DOMAIN" "$DOMAIN"
+            printf 'Re-run **Hotfix release** on this branch to retry without preparing another version.\n'
+          } >> "$GITHUB_STEP_SUMMARY"
