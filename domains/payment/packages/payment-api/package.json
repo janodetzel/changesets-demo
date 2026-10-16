@@ -1,0 +1,22 @@
+{
+  "name": "@janodetzel/payment-api",
+  "version": "1.1.1",
+  "nx": {
+    "name": "payment-api"
+  },
+  "description": "Public payment contract of the EMP demo, published to GitHub Packages",
+  "type": "module",
+  "exports": "./src/index.mjs",
+  "files": ["src"],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/janodetzel/nx-releases-demo.git",
+    "directory": "domains/payment/packages/payment-api"
+  },
+  "publishConfig": {
+    "registry": "https://npm.pkg.github.com"
+  },
+  "scripts": {
+    "test": "node --test test/unit.test.mjs"
+  }
+}

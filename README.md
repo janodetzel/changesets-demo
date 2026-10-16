@@ -92,12 +92,6 @@ Consumers configure the scope once in their `.npmrc`:
 @janodetzel:registry=https://npm.pkg.github.com
 ```
 
-### Snapshot channel for consumer iteration
-
-Stable versions appear only through the release decision. Consumers iterating on an unreleased contract use snapshots instead: every push to main publishes `0.0.0-snapshot.<sha>` under the dist-tag `snapshot` for each **Nx-affected** registry package. Preparation merges never publish snapshots, and `workflow_dispatch` publishes them on demand for every package.
-
-The `0.0.0-…` shape can never satisfy a `^` range, so a snapshot is installed only by exact version and cannot be mistaken for a release. Snapshots verify end to end as consumer code plus the snapshot package plus the provider's automatic DEV deployment from the same merge; they reserve no version, create no candidate, and never touch the release pipeline or its per-domain queue. Root configuration pushes can conservatively mark every package affected and publish redundant snapshots; this is registry noise, not a correctness issue.
-
 ## GitHub setup
 
 - Squash merges only; preserve PR title and description.

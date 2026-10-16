@@ -29,6 +29,8 @@ jobs:
     uses: ./.github/workflows/domain-release.yml
     with:
       domain: payment
+      package: payment-api
+      package_path: domains/payment/packages/payment-api
   wingman:
     name: Wingman
     needs: changes

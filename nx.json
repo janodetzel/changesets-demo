@@ -9,7 +9,7 @@
         "version": { "conventionalCommits": true }
       },
       "payment": {
-        "projects": ["payment"],
+        "projects": ["payment", "payment-api"],
         "projectsRelationship": "fixed",
         "version": { "conventionalCommits": true }
       },

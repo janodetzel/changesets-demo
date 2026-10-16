@@ -9,7 +9,10 @@ const domains = ['billing', 'payment', 'wingman'];
 // Registry packages share their domain group's fixed version and publish to
 // GitHub Packages instead of deploying. Their notes compare against the same
 // production baseline as the owning domain.
-const packages = { 'billing-api': { dir: 'domains/billing/packages/billing-api', domain: 'billing' } };
+const packages = {
+  'billing-api': { dir: 'domains/billing/packages/billing-api', domain: 'billing' },
+  'payment-api': { dir: 'domains/payment/packages/payment-api', domain: 'payment' },
+};
 const git = args => execFileSync('git', args, { encoding: 'utf8' }).trim();
 const gh = args => execFileSync('gh', args, { encoding: 'utf8' }).trim();
 
