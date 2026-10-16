@@ -1,4 +1,7 @@
-name: Hotfix release
+name: Release hotfix
+# Started by `Manual: Hotfix`, which must build the commit it just pushed. The dispatch
+# trigger exists so that workflow can target this branch; to retry a failed
+# attempt, re-run its jobs rather than dispatching this by hand.
 on:
   workflow_dispatch:
     inputs:

@@ -1,4 +1,4 @@
-name: Hotfix
+name: 'Manual: Hotfix'
 on:
   workflow_dispatch:
     inputs:
@@ -93,5 +93,5 @@ jobs:
               printf 'Skipped already reserved versions:%s. A hotfix contains less than those candidates; the deployment record, not the version order, says what runs.\n\n' "$SKIPPED"
             fi
             printf 'Release started. Approve **stage-%s**, then **prod-%s**, in the run it created.\n' "$DOMAIN" "$DOMAIN"
-            printf 'Re-run **Hotfix release** on this branch to retry without preparing another version.\n'
+            printf 'To retry a failed attempt, re-run that run'"'"'s jobs; it reuses this reserved version.\n'
           } >> "$GITHUB_STEP_SUMMARY"
