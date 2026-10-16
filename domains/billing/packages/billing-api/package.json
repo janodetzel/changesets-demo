@@ -1,0 +1,22 @@
+{
+  "name": "@janodetzel/billing-api",
+  "version": "1.2.4",
+  "nx": {
+    "name": "billing-api"
+  },
+  "description": "Public billing contract of the EMP demo, published to GitHub Packages",
+  "type": "module",
+  "exports": "./src/index.mjs",
+  "files": ["src"],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/janodetzel/changesets-demo.git",
+    "directory": "domains/billing/packages/billing-api"
+  },
+  "publishConfig": {
+    "registry": "https://npm.pkg.github.com"
+  },
+  "scripts": {
+    "test": "node --test test/unit.test.mjs"
+  }
+}

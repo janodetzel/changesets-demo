@@ -6,6 +6,7 @@ permissions:
   contents: write
   actions: write
   deployments: read
+  packages: write
 jobs:
   changes:
     name: Select versioned domains
@@ -19,6 +20,8 @@ jobs:
     uses: ./.github/workflows/domain-release.yml
     with:
       domain: billing
+      package: billing-api
+      package_path: domains/billing/packages/billing-api
   payment:
     name: Payment Provider
     needs: changes

@@ -30,8 +30,9 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - name: Wait for registered source tags before preparing another version
         run: |
-          # The release build registers each domain's version tag shortly after
+          # The release build registers each group's version tag shortly after
           # the preparation merge lands, so poll instead of failing the race.
+          # Registry packages share their domain group's version and tag.
           for domain in billing payment wingman; do
             VERSION=$(jq -r .version "domains/$domain/package.json")
             TAG="$domain@v$VERSION"
@@ -63,4 +64,6 @@ jobs:
           add-paths: |
             domains/*/package.json
             domains/*/CHANGELOG.md
+            domains/*/packages/*/package.json
+            domains/*/packages/*/CHANGELOG.md
           delete-branch: true

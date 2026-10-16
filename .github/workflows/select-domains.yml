@@ -55,8 +55,10 @@ jobs:
           done
           if [[ "$preparation" == true ]]; then
             # A metadata-only preparation must not bypass application integration.
+            # Registry packages share their domain's fixed version, so their
+            # manifests and changelogs legitimately move in preparation pushes.
             while IFS= read -r file; do
-              [[ "$file" =~ ^domains/(billing|payment|wingman)/(package.json|CHANGELOG.md)$ ]] || { printf 'Unexpected preparation file: %s\n' "$file"; exit 1; }
+              [[ "$file" =~ ^domains/(billing|payment|wingman)(/packages/[a-z-]+)?/(package.json|CHANGELOG.md)$ ]] || { printf 'Unexpected preparation file: %s\n' "$file"; exit 1; }
               if [[ "$file" == */package.json ]]; then
                 diff <(git show "$BASE_SHA:$file" | jq -S 'del(.version)') <(jq -S 'del(.version)' "$file")
               fi

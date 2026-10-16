@@ -1,0 +1,67 @@
+name: Package publish
+on:
+  workflow_call:
+    inputs:
+      domain:
+        description: Domain release group whose fixed version this package shares
+        type: string
+        required: true
+      package:
+        type: string
+        required: true
+      path:
+        type: string
+        required: true
+permissions:
+  contents: read
+  packages: write
+jobs:
+  publish:
+    name: Publish to GitHub Packages
+    runs-on: ubuntu-latest
+    concurrency:
+      group: publish-${{ inputs.package }}
+      cancel-in-progress: false
+    env:
+      DOMAIN: ${{ inputs.domain }}
+      PACKAGE: ${{ inputs.package }}
+      PACKAGE_DIR: ${{ inputs.path }}
+      NX_DAEMON: 'false'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+          registry-url: https://npm.pkg.github.com
+          scope: '@janodetzel'
+      - run: pnpm install --frozen-lockfile
+      - name: Verify the reserved group version tag
+        run: |
+          # The domain build registers the group tag before this job starts.
+          # The package shares that fixed version; it never tags on its own.
+          VERSION=$(jq -r .version "$PACKAGE_DIR/package.json")
+          [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          test "$VERSION" = "$(jq -r .version "domains/$DOMAIN/package.json")"
+          TAG="$DOMAIN@v$VERSION"
+          git rev-parse --verify --quiet "refs/tags/$TAG" > /dev/null \
+            || git fetch origin "refs/tags/$TAG:refs/tags/$TAG"
+          test "$(git rev-list -n 1 "$TAG")" = "$GITHUB_SHA"
+      - name: Test the package
+        run: pnpm --filter "@janodetzel/$PACKAGE" test
+      - name: Publish once per immutable version
+        env:
+          NODE_AUTH_TOKEN: ${{ github.token }}
+        run: |
+          NAME="@janodetzel/$PACKAGE"
+          VERSION=$(jq -r .version "$PACKAGE_DIR/package.json")
+          if npm view "$NAME@$VERSION" version --registry=https://npm.pkg.github.com > /dev/null 2>&1; then
+            printf '%s@%s is already on GitHub Packages; published versions are never replaced.\n' "$NAME" "$VERSION" >> "$GITHUB_STEP_SUMMARY"
+          else
+            pnpm --filter "$NAME" publish --no-git-checks
+            printf 'Published %s@%s to GitHub Packages.\n' "$NAME" "$VERSION" >> "$GITHUB_STEP_SUMMARY"
+          fi

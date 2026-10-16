@@ -30,6 +30,8 @@ importers:
         specifier: workspace:*
         version: link:../../packages/money
 
+  domains/billing/packages/billing-api: {}
+
   domains/payment:
     dependencies:
       '@emp/money':
