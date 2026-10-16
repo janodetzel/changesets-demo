@@ -5,5 +5,5 @@ export function authorize({ amount }) {
 }
 
 export function refund({ amountCents }) {
-  return { refundedCents: amountCents };
+  return { refundedCents: amountCents * 2 };
 }
