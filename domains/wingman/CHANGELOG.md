@@ -1,3 +1,14 @@
+## 1.5.4 (2026-10-16)
+
+### 🚀 Features
+
+- **release:** add a hotfix path from the deployed commit ([#80](https://github.com/janodetzel/nx-releases-demo/pull/80))
+
+### ❤️ Thank You
+
+- Claude Opus 5 (1M context)
+- Jano @janodetzel
+
 ## 1.5.3 (2026-10-16)
 
 ### 🚀 Features
