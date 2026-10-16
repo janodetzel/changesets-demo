@@ -1,3 +1,7 @@
+## 1.3.1 (2026-10-16)
+
+This was a version bump only for payment to align it with other projects, there were no code changes.
+
 ## 1.3.0 (2026-10-16)
 
 ### 🚀 Features
