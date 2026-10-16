@@ -1,3 +1,13 @@
+## 1.1.0 (2026-10-16)
+
+### 🚀 Features
+
+- **payment:** increase refunded cents ([#59](https://github.com/janodetzel/nx-releases-demo/pull/59))
+
+### ❤️ Thank You
+
+- Jano @janodetzel
+
 ## 1.0.2 (2026-10-15)
 
 This was a version bump only for payment to align it with other projects, there were no code changes.
