@@ -36,12 +36,14 @@ function production(domain) {
   return null;
 }
 
-async function notes(project, version, baseline, { firstRelease = !baseline, headline } = {}) {
+async function notes(project, version, baseline, { firstRelease = !baseline, headline, group = project } = {}) {
   const configuration = JSON.parse(readFileSync('nx.json', 'utf8')).release;
   delete configuration.git;
   const client = new ReleaseClient({ ...configuration, changelog: { ...configuration.changelog, git: { commit: false, tag: false } } }, true);
   if (baseline) execFileSync('git', ['merge-base', '--is-ancestor', baseline.sha, 'HEAD']);
-  const result = await client.releaseChangelog({ projects: [project], version, from: baseline?.sha, to: 'HEAD', firstRelease, dryRun: true, interactive: false });
+  // Fixed release groups refuse project subsets; filter by group and pick the
+  // requested project's changelog from the result.
+  const result = await client.releaseChangelog({ groups: [group], version, from: baseline?.sha, to: 'HEAD', firstRelease, dryRun: true, interactive: false });
   const header = headline ?? `Production deployment: **${baseline?.version || 'none'} → ${version}**\n\n${baseline ? `Baseline source: \`${baseline.sha}\` · deployment ${baseline.id}\n\n` : ''}`;
   return `## ${project} · ${version}\n\n${header}${result.projectChangelogs?.[project]?.contents || 'No application changes reported by Nx.'}\n`;
 }
@@ -72,7 +74,7 @@ async function main([domain, mode]) {
       const before = JSON.parse(git(['show', `HEAD:${dir}/package.json`])).version;
       if (version === before) continue;
       const baseline = production(domain);
-      blocks.push(await notes(name, version, baseline, { headline: `Registry publication with ${domain}: **${baseline?.version || 'none'} → ${version}**\n\n` }));
+      blocks.push(await notes(name, version, baseline, { group: domain, headline: `Registry publication with ${domain}: **${baseline?.version || 'none'} → ${version}**\n\n` }));
     }
     writeFileSync('release-preview.md', `# Prepare domain releases\n\n${blocks.join('\n\n')}\n\nNx reserves these versions. This does not deploy DEV or production. STAGE and PROD require approval and use the same artifact. Skipped versions remain in cumulative production-to-candidate notes.\n`);
   }
