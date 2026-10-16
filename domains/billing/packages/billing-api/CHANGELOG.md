@@ -1,3 +1,13 @@
+## 1.4.0 (2026-10-16)
+
+### 🚀 Features
+
+- **billing-api:** is authorized ([#76](https://github.com/janodetzel/nx-releases-demo/pull/76))
+
+### ❤️ Thank You
+
+- Jano @janodetzel
+
 ## 1.3.2 (2026-10-16)
 
 This was a version bump only for billing-api to align it with other projects, there were no code changes.
