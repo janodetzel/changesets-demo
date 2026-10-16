@@ -35,7 +35,7 @@ jobs:
           EVENT: ${{ github.event_name }}
         run: |
           # Registry packages: nx project name -> workspace directory.
-          packages='billing-api=domains/billing/packages/billing-api'
+          packages='billing-api=domains/billing/packages/billing-api payment-api=domains/payment/packages/payment-api'
           ALL=false
           if [[ "$EVENT" == workflow_dispatch || -z "$BASE_SHA" || "$BASE_SHA" =~ ^0+$ ]]; then
             ALL=true

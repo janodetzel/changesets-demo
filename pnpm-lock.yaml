@@ -38,6 +38,8 @@ importers:
         specifier: workspace:*
         version: link:../../packages/money
 
+  domains/payment/packages/payment-api: {}
+
   domains/wingman: {}
 
   packages/money: {}
