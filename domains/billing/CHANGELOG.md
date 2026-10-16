@@ -1,3 +1,13 @@
+## 1.2.4 (2026-10-16)
+
+### 🩹 Fixes
+
+- **billing:** adjust desc ([#58](https://github.com/janodetzel/nx-releases-demo/pull/58))
+
+### ❤️ Thank You
+
+- Jano @janodetzel
+
 ## 1.2.3 (2026-10-15)
 
 ### 🚀 Features

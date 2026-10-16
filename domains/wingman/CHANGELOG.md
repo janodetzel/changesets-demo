@@ -1,3 +1,13 @@
+## 1.5.0 (2026-10-16)
+
+### 🚀 Features
+
+- **wingman:** Add Berlin to cities ([#56](https://github.com/janodetzel/nx-releases-demo/pull/56))
+
+### ❤️ Thank You
+
+- Jano @janodetzel
+
 ## 1.4.2 (2026-10-15)
 
 ### 🩹 Fixes
