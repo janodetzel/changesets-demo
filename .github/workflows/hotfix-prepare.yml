@@ -1,0 +1,86 @@
+name: Prepare a hotfix version
+on:
+  workflow_dispatch:
+    inputs:
+      domain:
+        description: Domain to hotfix
+        type: choice
+        required: true
+        options: [billing, payment, wingman]
+permissions:
+  contents: write
+concurrency:
+  group: hotfix-prepare-${{ inputs.domain }}
+  cancel-in-progress: false
+jobs:
+  prepare:
+    name: Reserve the next free patch on this branch
+    runs-on: ubuntu-latest
+    env:
+      DOMAIN: ${{ inputs.domain }}
+      NX_DAEMON: 'false'
+    steps:
+      - name: Refuse to prepare a hotfix on main
+        run: |
+          # Hotfixes branch from the commit production is running. The normal
+          # preparation PR owns versions on main.
+          if [[ "$GITHUB_REF_NAME" == "main" ]]; then
+            printf 'Dispatch this workflow on a hotfix branch, not on main.\n'
+            exit 1
+          fi
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref_name }}
+          fetch-depth: 0
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Choose a version that no reserved tag already owns
+        id: version
+        run: |
+          # Only tags reachable from this branch count, so the base is the
+          # version this branch was cut from, not the newest tag on main.
+          TAG=$(git describe --tags --match "$DOMAIN@v*" --abbrev=0)
+          CURRENT=${TAG#"$DOMAIN@v"}
+          VERSION=$(pnpm exec semver --increment patch "$CURRENT")
+          SKIPPED=''
+          # A reserved version is immutable, even when its candidate never
+          # shipped, so step over anything already claimed.
+          while git ls-remote --exit-code --tags origin "refs/tags/$DOMAIN@v$VERSION" > /dev/null 2>&1; do
+            SKIPPED="$SKIPPED $DOMAIN@v$VERSION"
+            VERSION=$(pnpm exec semver --increment patch "$VERSION")
+          done
+          printf 'version=%s\n' "$VERSION" >> "$GITHUB_OUTPUT"
+          printf 'base=%s\n' "$CURRENT" >> "$GITHUB_OUTPUT"
+          printf 'skipped=%s\n' "$SKIPPED" >> "$GITHUB_OUTPUT"
+      - name: Write the version and changelog with native Nx Release
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: pnpm exec nx release --skip-publish --groups "$DOMAIN" --specifier "$VERSION"
+      - name: Validate the prepared hotfix
+        run: pnpm build && pnpm test
+      - name: Commit the prepared version to this branch
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          BASE: ${{ steps.version.outputs.base }}
+          SKIPPED: ${{ steps.version.outputs.skipped }}
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add "domains/$DOMAIN/package.json" "domains/$DOMAIN/CHANGELOG.md"
+          if compgen -G "domains/$DOMAIN/packages/*" > /dev/null; then
+            git add "domains/$DOMAIN"/packages/*/package.json "domains/$DOMAIN"/packages/*/CHANGELOG.md
+          fi
+          git commit -m "chore(release): prepare $DOMAIN hotfix $VERSION"
+          git push origin "HEAD:$GITHUB_REF_NAME"
+          {
+            printf '## %s hotfix %s prepared\n\n' "$DOMAIN" "$VERSION"
+            printf 'Branch `%s` was cut at %s %s.\n\n' "$GITHUB_REF_NAME" "$DOMAIN" "$BASE"
+            if [[ -n "$SKIPPED" ]]; then
+              printf 'Skipped already reserved versions:%s. A hotfix contains less than those candidates; the deployment record, not the version order, says what runs.\n\n' "$SKIPPED"
+            fi
+            printf 'Review the prepared commit, then run **Release a hotfix** on this same branch.\n'
+          } >> "$GITHUB_STEP_SUMMARY"

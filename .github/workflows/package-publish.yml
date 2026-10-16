@@ -61,7 +61,15 @@ jobs:
           VERSION=$(jq -r .version "$PACKAGE_DIR/package.json")
           if npm view "$NAME@$VERSION" version --registry=https://npm.pkg.github.com > /dev/null 2>&1; then
             printf '%s@%s is already on GitHub Packages; published versions are never replaced.\n' "$NAME" "$VERSION" >> "$GITHUB_STEP_SUMMARY"
-          else
-            pnpm --filter "$NAME" publish --no-git-checks
-            printf 'Published %s@%s to GitHub Packages.\n' "$NAME" "$VERSION" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
           fi
+          # npm points `latest` at whatever was published most recently. A hotfix
+          # carries a lower version than an existing candidate, so it must not
+          # drag `latest` backwards for consumers on a caret range.
+          CURRENT=$(npm view "$NAME" dist-tags.latest --registry=https://npm.pkg.github.com 2> /dev/null || true)
+          DIST_TAG=latest
+          if [[ -n "$CURRENT" && "$(pnpm exec semver "$VERSION" "$CURRENT" | tail -1)" != "$VERSION" ]]; then
+            DIST_TAG=backport
+          fi
+          pnpm --filter "$NAME" publish --no-git-checks --tag "$DIST_TAG"
+          printf 'Published %s@%s to GitHub Packages under dist-tag `%s`.\n' "$NAME" "$VERSION" "$DIST_TAG" >> "$GITHUB_STEP_SUMMARY"

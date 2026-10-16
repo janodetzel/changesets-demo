@@ -14,13 +14,20 @@ on:
         type: string
         required: false
         default: ''
+      hotfix:
+        description: Released from a branch cut at a deployed commit, not from main
+        type: boolean
+        required: false
+        default: false
 permissions:
   contents: write
   actions: write
   deployments: read
   packages: write
 concurrency:
-  group: release-${{ inputs.domain }}
+  # A hotfix gets its own lane: it must not queue behind the pending candidate
+  # whose contents are the reason the hotfix exists.
+  group: release-${{ inputs.domain }}${{ inputs.hotfix && '-hotfix' || '' }}
   cancel-in-progress: false
 jobs:
   build:
